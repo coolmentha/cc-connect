@@ -519,6 +519,9 @@ export default function ChatView() {
   const previewHandleCounter = useRef(0);
   const cmdBtnRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Refs let the session poller see current state without re-creating the timer.
+  const messagesRef = useRef<ChatMsg[]>([]);
+  const typingRef = useRef(false);
   const [pendingAttachments, setPendingAttachments] = useState<OutgoingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
   const sessionKeyRef = useRef('');
@@ -739,6 +742,34 @@ export default function ChatView() {
       });
     }
   }, [projectName, t]);
+
+  // Keep refs in sync for the poller below.
+  messagesRef.current = messages;
+  typingRef.current = typing;
+
+  // Poll the open session so turns started from another platform (e.g. WeCom)
+  // still surface their progress and final timing summary in the web UI.
+  useEffect(() => {
+    if (!projectName || !currentSession?.id) return;
+    const timer = setInterval(async () => {
+      if (document.hidden) return;
+      if (typingRef.current || messagesRef.current.some((m) => m.streaming)) return;
+      try {
+        const detail = await getSession(projectName, currentSession.id, 200);
+        const built = detailToMessages(detail);
+        setMessages((prev) => {
+          const prevLast = prev[prev.length - 1];
+          const nextLast = built[built.length - 1];
+          if (prev.length === built.length && prevLast?.content === nextLast?.content) return prev;
+          return built;
+        });
+        setCurrentSession(detail);
+      } catch {
+        // ignore transient polling errors
+      }
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [projectName, currentSession?.id]);
 
   const { status: bridgeStatus, sendMessage: bridgeSend, sendCardAction, sendPreviewAck } = useBridgeSocket({
     bridgeCfg,
