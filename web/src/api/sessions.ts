@@ -31,6 +31,12 @@ export interface ProgressEntry {
   kind?: string;
   content: string;
   timestamp: string;
+  tool_name?: string;
+  tool_input?: string;
+  tool_index?: number;
+  status?: string;
+  exit_code?: number;
+  success?: boolean;
 }
 
 export interface SessionDetail extends Session {

@@ -276,6 +276,7 @@
     "logout": "退出登录"
   },
   "common": {
+    "copy": "复制",
     "enable": "启用",
     "loading": "加载中…",
     "error": "错误",
@@ -404,6 +405,12 @@
     "sendPath": "消息发送路径（出站 API）"
   },
   "chat": {
+    "thinking": "思考",
+    "tool": "工具",
+    "arguments": "参数",
+    "noArguments": "无参数",
+    "result": "结果",
+    "emptyResult": "无输出",
     "agentFinished": "Agent 已完成",
     "noChats": "暂无项目",
     "noMessages": "暂无消息",

@@ -276,6 +276,7 @@
     "logout": "Выйти"
   },
   "common": {
+    "copy": "Copy",
     "enable": "Enable",
     "loading": "Загрузка…",
     "error": "Ошибка",
@@ -404,6 +405,12 @@
     "sendPath": "Путь отправки сообщений (API)"
   },
   "chat": {
+    "thinking": "Thinking",
+    "tool": "Tool",
+    "arguments": "Arguments",
+    "noArguments": "No arguments",
+    "result": "Result",
+    "emptyResult": "No output",
     "agentFinished": "Agent finished",
     "noChats": "Пока нет проектов",
     "noMessages": "Сообщений пока нет",

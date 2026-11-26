@@ -5973,13 +5973,27 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		}
 		sendWorkspace(p, replyCtx, content)
 	}
-	sendProgressRaw := func(p Platform, replyCtx any, content string) {
-		if ps, ok := p.(ProgressMessageSender); ok {
-			if err := ps.SendProgress(e.ctx, replyCtx, content); err == nil {
+	sendProgressEvent := func(p Platform, replyCtx any, ev ProgressEvent) {
+		if ps, ok := p.(ProgressEventSender); ok {
+			if err := ps.SendProgressEvent(e.ctx, replyCtx, ev); err == nil {
 				return
 			}
 		}
-		e.sendRaw(p, replyCtx, content)
+		if ev.Content != "" {
+			for _, chunk := range SplitMessageCodeFenceAware(ev.Content, maxPlatformMessageLen) {
+				sendProgress(p, replyCtx, chunk)
+			}
+		}
+	}
+	sendProgressEventRaw := func(p Platform, replyCtx any, ev ProgressEvent) {
+		if ps, ok := p.(ProgressEventSender); ok {
+			if err := ps.SendProgressEvent(e.ctx, replyCtx, ev); err == nil {
+				return
+			}
+		}
+		if ev.Content != "" {
+			e.sendRaw(p, replyCtx, ev.Content)
+		}
 	}
 
 	// Streaming card: aggregate entire turn into a single updatable card.
@@ -6213,22 +6227,21 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if isEllipsisOnly(event.Content) {
 				break
 			}
-			// Persist progress for every platform so the web dashboard can show
-			// the reasoning process even when IM display switches are off.
+			// Persist structured progress for every platform so the web
+			// dashboard can show readable steps even when IM display is off.
 			progressPreview := truncateIf(event.Content, e.display.ThinkingMaxLen)
+			progressEV := ProgressEvent{}
 			if strings.TrimSpace(progressPreview) != "" {
-				session.AddProgress("thinking", fmt.Sprintf(e.i18n.T(MsgThinking), progressPreview))
+				progressEV = ProgressEvent{Kind: "thinking", Content: fmt.Sprintf(e.i18n.T(MsgThinking), progressPreview)}
+				session.AddProgressEntry(progressEV)
 			}
 			if wantProgress && !e.display.ThinkingMessages {
-				preview := truncateIf(event.Content, e.display.ThinkingMaxLen)
-				if strings.TrimSpace(preview) != "" {
-					thinkingMsg := fmt.Sprintf(e.i18n.T(MsgThinking), preview)
-					session.AddProgress("thinking", thinkingMsg)
+				if progressEV.Content != "" {
 					if sp.canPreview() {
 						sp.freeze()
 						sp.detachPreview()
 					}
-					sendProgress(p, replyCtx, thinkingMsg)
+					sendProgressEvent(p, replyCtx, progressEV)
 				}
 				break
 			}
@@ -6318,25 +6331,28 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				session.AddProgress("thinking", thinkingMsg)
 				if !cp.AppendEvent(ProgressEntryThinking, preview, "", thinkingMsg) {
 					if progressStyleForTarget(p, replyCtx) == progressStyleLegacy {
-						sendProgress(p, replyCtx, thinkingMsg)
+						sendProgressEvent(p, replyCtx, progressEV)
 					}
 				}
 			}
 
 		case EventToolUse:
 			toolCount++
-			// Record for the web dashboard regardless of IM display settings.
-			session.AddProgress("tool", e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen))
+			toolMsg := e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen)
+			toolEV := ProgressEvent{
+				Kind:      "tool",
+				Content:   toolMsg,
+				ToolName:  event.ToolName,
+				ToolInput: event.ToolInput,
+				ToolIndex: toolCount,
+			}
+			session.AddProgressEntry(toolEV)
 			if wantProgress && !e.display.ToolMessages {
-				toolMsg := e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen)
-				session.AddProgress("tool", toolMsg)
 				if sp.canPreview() {
 					sp.freeze()
 					sp.detachPreview()
 				}
-				for _, chunk := range SplitMessageCodeFenceAware(toolMsg, maxPlatformMessageLen) {
-					sendProgress(p, replyCtx, chunk)
-				}
+				sendProgressEvent(p, replyCtx, toolEV)
 				break
 			}
 			if hasRichCard {
@@ -6443,7 +6459,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if toolInput != event.ToolInput {
 					toolInput = truncateIf(toolInput, e.display.ToolMaxLen)
 				}
-				toolMsg := e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen)
+				toolMsg = e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen)
 				session.AddProgress("tool", toolMsg)
 				// Truncate the tool input that goes into the progress card payload so
 				// tool_max_len applies uniformly to progress_style=card, matching
@@ -6454,39 +6470,35 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// fails, do not turn every subsequent tool event into a new
 					// chat message; the final answer remains authoritative.
 					if progressStyleForTarget(p, replyCtx) == progressStyleLegacy {
-						for _, chunk := range SplitMessageCodeFenceAware(toolMsg, maxPlatformMessageLen) {
-							sendProgress(p, replyCtx, chunk)
-						}
+						sendProgressEvent(p, replyCtx, toolEV)
 					}
 				}
 			}
 
 		case EventToolResult:
-			{
-				// Record for the web dashboard regardless of IM display settings.
-				result := strings.TrimSpace(event.ToolResult)
-				if result == "" {
-					result = strings.TrimSpace(event.Content)
+			result := strings.TrimSpace(event.ToolResult)
+			if result == "" {
+				result = strings.TrimSpace(event.Content)
+			}
+			if result != "" {
+				result = truncateIf(result, e.display.ToolMaxLen)
+			}
+			resultEV := ProgressEvent{}
+			if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
+				resultMsg := e.formatToolResultEventFallback(event.ToolName, result, event.ToolStatus, event.ToolExitCode, event.ToolSuccess)
+				resultEV = ProgressEvent{
+					Kind:     "tool_result",
+					Content:  resultMsg,
+					ToolName: event.ToolName,
+					Status:   event.ToolStatus,
+					ExitCode: event.ToolExitCode,
+					Success:  event.ToolSuccess,
 				}
-				if result != "" {
-					result = truncateIf(result, e.display.ToolMaxLen)
-				}
-				if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
-					session.AddProgress("tool_result", e.formatToolResultEventFallback(event.ToolName, result, event.ToolStatus, event.ToolExitCode, event.ToolSuccess))
-				}
+				session.AddProgressEntry(resultEV)
 			}
 			if wantProgress && !e.display.ToolMessages {
-				result := strings.TrimSpace(event.ToolResult)
-				if result == "" {
-					result = strings.TrimSpace(event.Content)
-				}
-				if result != "" {
-					result = truncateIf(result, e.display.ToolMaxLen)
-				}
-				if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
-					resultMsg := e.formatToolResultEventFallback(event.ToolName, result, event.ToolStatus, event.ToolExitCode, event.ToolSuccess)
-					session.AddProgress("tool_result", resultMsg)
-					sendProgressRaw(p, replyCtx, resultMsg)
+				if resultEV.Content != "" {
+					sendProgressEventRaw(p, replyCtx, resultEV)
 				}
 				break
 			}
@@ -6531,7 +6543,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 					if !cp.AppendStructured(entry, resultMsg) {
 						if progressStyleForTarget(p, replyCtx) == progressStyleLegacy && !SuppressStandaloneToolResultEvent(p) {
-							sendProgressRaw(p, replyCtx, resultMsg)
+							sendProgressEventRaw(p, replyCtx, resultEV)
 						}
 					}
 				}

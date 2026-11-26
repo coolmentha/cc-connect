@@ -16,6 +16,7 @@ import { webSessionKey as makeWebSessionKey, webUserId, webUserName, webPlatform
 import { notify } from '@/lib/notify';
 import CommandPalette, { type SlashCommand, slashCommands } from './CommandPalette';
 import SessionDrawer from './SessionDrawer';
+import ProgressItem, { type ProgressData } from './ProgressItem';
 import CommandResultPanel, { type CommandResult } from './CommandResultPanel';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -115,6 +116,7 @@ interface ChatMsg {
   mimeType?: string;
   previewHandle?: string;
   attachments?: { name: string; kind: 'image' | 'file' }[];
+  progress?: ProgressData;
 }
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -151,6 +153,16 @@ function detailToMessages(detail: SessionDetail): ChatMsg[] {
       content: p.content,
       format: 'markdown',
       timestamp: p.timestamp,
+      progress: {
+        kind: p.kind,
+        content: p.content,
+        toolName: p.tool_name,
+        toolInput: p.tool_input,
+        toolIndex: p.tool_index,
+        status: p.status,
+        exitCode: p.exit_code,
+        success: p.success,
+      },
     });
   });
   out.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
@@ -322,16 +334,6 @@ function MediaBlock({ msg }: { msg: ChatMsg }) {
   if (msg.mediaKind === 'audio') return <AudioBlock url={msg.mediaUrl} />;
   if (msg.mediaKind === 'video') return <VideoBlock url={msg.mediaUrl} />;
   return <FileBlock name={msg.fileName || 'file'} size={msg.fileSize} url={msg.mediaUrl} />;
-}
-
-// ProgressBlock renders intermediate thinking / tool output. It stays visible
-// after the final answer arrives, so the reasoning process is not lost.
-function ProgressBlock({ content }: { content: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-gray-300/80 dark:border-gray-700/80 bg-gray-50/70 dark:bg-white/[0.02] px-4 py-3 text-[13px] text-gray-600 dark:text-gray-300">
-      <RenderMarkdown content={content} />
-    </div>
-  );
 }
 
 function StatusBadge({ status }: { status: BridgeStatus }) {
@@ -547,6 +549,16 @@ export default function ChatView() {
           kind: 'progress',
           content: progress.content,
           format: 'markdown',
+          progress: {
+            kind: progress.kind,
+            content: progress.content,
+            toolName: progress.tool_name,
+            toolInput: progress.tool_input,
+            toolIndex: progress.tool_index,
+            status: progress.status,
+            exitCode: progress.exit_code,
+            success: progress.success,
+          },
         }]);
       }
       setTyping(false);
@@ -825,7 +837,7 @@ export default function ChatView() {
                 {isEmpty ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500 italic">{t('chat.unsupportedMessage', '[Unsupported message]')}</p>
                 ) : msg.kind === 'progress' ? (
-                  <ProgressBlock content={msg.content} />
+                  <ProgressItem data={msg.progress || { content: msg.content }} />
                 ) : msg.kind === 'media' ? (
                   <MediaBlock msg={msg} />
                 ) : msg.format === 'card' ? (

@@ -276,6 +276,7 @@
     "logout": "로그아웃"
   },
   "common": {
+    "copy": "Copy",
     "enable": "Enable",
     "loading": "로딩 중…",
     "error": "오류",
@@ -404,6 +405,12 @@
     "sendPath": "전송 경로 (아웃바운드 API)"
   },
   "chat": {
+    "thinking": "Thinking",
+    "tool": "Tool",
+    "arguments": "Arguments",
+    "noArguments": "No arguments",
+    "result": "Result",
+    "emptyResult": "No output",
     "agentFinished": "Agent finished",
     "noChats": "프로젝트가 없습니다",
     "noMessages": "메시지가 없습니다",

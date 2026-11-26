@@ -276,6 +276,7 @@
     "logout": "Cerrar sesión"
   },
   "common": {
+    "copy": "Copy",
     "enable": "Enable",
     "loading": "Cargando…",
     "error": "Error",
@@ -404,6 +405,12 @@
     "sendPath": "Ruta de envío (API saliente)"
   },
   "chat": {
+    "thinking": "Thinking",
+    "tool": "Tool",
+    "arguments": "Arguments",
+    "noArguments": "No arguments",
+    "result": "Result",
+    "emptyResult": "No output",
     "agentFinished": "Agent finished",
     "noChats": "No hay proyectos",
     "noMessages": "No hay mensajes",

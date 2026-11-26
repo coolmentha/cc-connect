@@ -276,6 +276,7 @@
     "logout": "ログアウト"
   },
   "common": {
+    "copy": "Copy",
     "enable": "Enable",
     "loading": "読み込み中…",
     "error": "エラー",
@@ -404,6 +405,12 @@
     "sendPath": "送信 API パス"
   },
   "chat": {
+    "thinking": "Thinking",
+    "tool": "Tool",
+    "arguments": "Arguments",
+    "noArguments": "No arguments",
+    "result": "Result",
+    "emptyResult": "No output",
     "agentFinished": "Agent finished",
     "noChats": "プロジェクトがありません",
     "noMessages": "メッセージがありません",

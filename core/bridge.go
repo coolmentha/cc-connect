@@ -560,6 +560,12 @@ func (bp *BridgePlatform) SendWithButtons(ctx context.Context, replyCtx any, con
 // only used when the adapter advertises the "progress" capability; otherwise
 // the engine falls back to a regular reply so older adapters keep working.
 func (bp *BridgePlatform) SendProgress(ctx context.Context, replyCtx any, content string) error {
+	return bp.SendProgressEvent(ctx, replyCtx, ProgressEvent{Content: content})
+}
+
+// SendProgressEvent delivers a structured progress step (thinking/tool/result)
+// so the web dashboard can render readable cards instead of raw text.
+func (bp *BridgePlatform) SendProgressEvent(ctx context.Context, replyCtx any, ev ProgressEvent) error {
 	rc, ok := replyCtx.(*bridgeReplyCtx)
 	if !ok {
 		return fmt.Errorf("bridge: invalid reply context")
@@ -568,13 +574,35 @@ func (bp *BridgePlatform) SendProgress(ctx context.Context, replyCtx any, conten
 	if a == nil || !a.capabilities["progress"] {
 		return ErrNotSupported
 	}
-	return bp.server.sendToAdapter(rc.Platform, map[string]any{
+	payload := map[string]any{
 		"type":        "progress",
 		"session_key": rc.SessionKey,
 		"reply_ctx":   rc.ReplyCtx,
-		"content":     content,
+		"content":     ev.Content,
 		"format":      "markdown",
-	})
+	}
+	if ev.Kind != "" {
+		payload["kind"] = ev.Kind
+	}
+	if ev.ToolName != "" {
+		payload["tool_name"] = ev.ToolName
+	}
+	if ev.ToolInput != "" {
+		payload["tool_input"] = ev.ToolInput
+	}
+	if ev.ToolIndex > 0 {
+		payload["tool_index"] = ev.ToolIndex
+	}
+	if ev.Status != "" {
+		payload["status"] = ev.Status
+	}
+	if ev.ExitCode != nil {
+		payload["exit_code"] = *ev.ExitCode
+	}
+	if ev.Success != nil {
+		payload["success"] = *ev.Success
+	}
+	return bp.server.sendToAdapter(rc.Platform, payload)
 }
 
 // WantsProgress reports whether the connected adapter subscribed to progress

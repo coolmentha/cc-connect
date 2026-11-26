@@ -276,6 +276,7 @@
     "logout": "Log out"
   },
   "common": {
+    "copy": "Copy",
     "enable": "Enable",
     "loading": "Loading…",
     "error": "Error",
@@ -404,6 +405,12 @@
     "sendPath": "Send path (outbound API)"
   },
   "chat": {
+    "thinking": "Thinking",
+    "tool": "Tool",
+    "arguments": "Arguments",
+    "noArguments": "No arguments",
+    "result": "Result",
+    "emptyResult": "No output",
     "agentFinished": "Agent finished",
     "noChats": "No projects yet",
     "noMessages": "No messages yet",

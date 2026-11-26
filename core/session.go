@@ -199,24 +199,53 @@ const (
 	maxProgressEntryRunes = 4000
 )
 
+// ProgressEvent is one intermediate step (thinking, tool call, tool result)
+// shown by the web dashboard.
+type ProgressEvent struct {
+	Kind      string // "thinking" | "tool" | "tool_result"
+	Content   string // human-readable fallback text
+	ToolName  string
+	ToolInput string
+	ToolIndex int
+	Status    string
+	ExitCode  *int
+	Success   *bool
+}
+
 // AddProgress records one intermediate thinking/tool entry for display. It is
 // intentionally separate from History so it never becomes agent context.
 func (s *Session) AddProgress(kind, content string) {
+	s.AddProgressEntry(ProgressEvent{Kind: kind, Content: content})
+}
+
+// AddProgressEntry records a structured progress entry.
+func (s *Session) AddProgressEntry(ev ProgressEvent) {
+	content := ev.Content
+	if content == "" && ev.Kind == "tool" {
+		content = ev.ToolName
+	}
 	if content == "" {
 		return
 	}
 	content = truncateIf(content, maxProgressEntryRunes)
+	toolInput := truncateIf(ev.ToolInput, maxProgressEntryRunes)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Deduplicate identical adjacent entries: callers may record progress in
 	// both the "always persist" path and the display path.
-	if n := len(s.Progress); n > 0 && s.Progress[n-1].Kind == kind && s.Progress[n-1].Content == content {
+	if n := len(s.Progress); n > 0 && s.Progress[n-1].Kind == ev.Kind && s.Progress[n-1].Content == content && s.Progress[n-1].ToolInput == toolInput {
 		return
 	}
 	s.Progress = append(s.Progress, HistoryEntry{
 		Role:      "progress",
-		Kind:      kind,
+		Kind:      ev.Kind,
 		Content:   content,
+		ToolName:  ev.ToolName,
+		ToolInput: toolInput,
+		ToolIndex: ev.ToolIndex,
+		Status:    ev.Status,
+		ExitCode:  ev.ExitCode,
+		Success:   ev.Success,
 		Timestamp: time.Now(),
 	})
 	if len(s.Progress) > maxProgressEntries {

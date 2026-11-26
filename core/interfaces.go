@@ -314,6 +314,13 @@ type ProgressMessageSender interface {
 	SendProgress(ctx context.Context, replyCtx any, content string) error
 }
 
+// ProgressEventSender is the structured variant of ProgressMessageSender.
+// Platforms that implement it receive tool name/input/status metadata so
+// clients can render readable step cards instead of parsing text.
+type ProgressEventSender interface {
+	SendProgressEvent(ctx context.Context, replyCtx any, ev ProgressEvent) error
+}
+
 // ProgressObserver is an optional interface for platforms that want progress
 // even when the global [display] thinking_messages/tool_messages switches are
 // off. The web dashboard uses this so its viewers see reasoning steps without

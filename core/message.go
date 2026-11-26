@@ -539,6 +539,14 @@ type HistoryEntry struct {
 	// "tool_result") from normal conversation turns. Empty means "message" for
 	// backwards compatibility with existing session files.
 	Kind string `json:"kind,omitempty"`
+	// Structured tool metadata for progress entries, used by the web UI to
+	// render readable tool cards instead of raw text.
+	ToolName  string `json:"tool_name,omitempty"`
+	ToolInput string `json:"tool_input,omitempty"`
+	ToolIndex int    `json:"tool_index,omitempty"`
+	Status    string `json:"status,omitempty"`
+	ExitCode  *int   `json:"exit_code,omitempty"`
+	Success   *bool  `json:"success,omitempty"`
 }
 
 // AgentSessionInfo describes one session as reported by the agent backend.

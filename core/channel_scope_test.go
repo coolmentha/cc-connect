@@ -250,7 +250,7 @@ func TestSessionCommands_NewAndSwitchRoundTrip(t *testing.T) {
 	sessions.Save()
 
 	if got := second.GetHistory(10); len(got) == 0 || !strings.Contains(got[0].Content, "A2") {
-		t.Fatalf("active session after /new = %q, want A2 content", got)
+		t.Fatalf("active session after /new = %+v, want A2 content", got)
 	}
 
 	// /switch back to A1 must restore the original history, not an empty one.

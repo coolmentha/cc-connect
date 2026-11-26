@@ -34,3 +34,34 @@ func TestSessionProgressTruncatesLongContent(t *testing.T) {
 		t.Fatalf("content not truncated: %d runes", len([]rune(got[0].Content)))
 	}
 }
+
+func TestSessionProgressEntryKeepsToolMetadata(t *testing.T) {
+	s := &Session{}
+	exit := 1
+	success := false
+	s.AddProgressEntry(ProgressEvent{
+		Kind:      "tool_result",
+		Content:   "boom",
+		ToolName:  "Bash",
+		ToolInput: `{"command":"ls"}`,
+		ToolIndex: 2,
+		Status:    "failed",
+		ExitCode:  &exit,
+		Success:   &success,
+	})
+	got := s.GetProgress(1)[0]
+	if got.Kind != "tool_result" || got.ToolName != "Bash" || got.ToolInput != `{"command":"ls"}` {
+		t.Fatalf("unexpected entry: %+v", got)
+	}
+	if got.ToolIndex != 2 || got.Status != "failed" {
+		t.Fatalf("unexpected metadata: %+v", got)
+	}
+	if got.ExitCode == nil || *got.ExitCode != 1 || got.Success == nil || *got.Success {
+		t.Fatalf("unexpected status: %+v", got)
+	}
+	// Identical adjacent entries are deduplicated.
+	s.AddProgressEntry(ProgressEvent{Kind: "tool_result", Content: "boom", ToolName: "Bash", ToolInput: `{"command":"ls"}`})
+	if len(s.GetProgress(0)) != 1 {
+		t.Fatal("duplicate entry was not deduplicated")
+	}
+}

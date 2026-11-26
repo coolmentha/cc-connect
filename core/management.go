@@ -1626,12 +1626,31 @@ func (m *ManagementServer) handleProjectSessionDetail(w http.ResponseWriter, r *
 		progress := s.GetProgress(histLimit)
 		progressJSON := make([]map[string]any, len(progress))
 		for i, p := range progress {
-			progressJSON[i] = map[string]any{
+			entry := map[string]any{
 				"role":      p.Role,
 				"kind":      p.Kind,
 				"content":   p.Content,
 				"timestamp": p.Timestamp,
 			}
+			if p.ToolName != "" {
+				entry["tool_name"] = p.ToolName
+			}
+			if p.ToolInput != "" {
+				entry["tool_input"] = p.ToolInput
+			}
+			if p.ToolIndex > 0 {
+				entry["tool_index"] = p.ToolIndex
+			}
+			if p.Status != "" {
+				entry["status"] = p.Status
+			}
+			if p.ExitCode != nil {
+				entry["exit_code"] = *p.ExitCode
+			}
+			if p.Success != nil {
+				entry["success"] = *p.Success
+			}
+			progressJSON[i] = entry
 		}
 
 		idToKey, activeIDs := e.sessions.SessionKeyMap()
