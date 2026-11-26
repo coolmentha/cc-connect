@@ -2510,6 +2510,46 @@ func (e *Engine) Start() error {
 	return nil
 }
 
+// NotifyShutdown sends a best-effort notice to every active interactive
+// session. It must be called while the platforms are still running (before
+// Engine.Stop), so a container stop/restart does not leave users waiting for
+// a reply that will never arrive.
+func (e *Engine) NotifyShutdown(text string) {
+	if text == "" {
+		return
+	}
+	e.interactiveMu.Lock()
+	states := make([]*interactiveState, 0, len(e.interactiveStates))
+	for _, st := range e.interactiveStates {
+		if st != nil {
+			states = append(states, st)
+		}
+	}
+	e.interactiveMu.Unlock()
+
+	for _, st := range states {
+		st.mu.Lock()
+		p := st.platform
+		rctx := st.replyCtx
+		busy := st.busySession
+		st.mu.Unlock()
+		if p == nil || rctx == nil {
+			continue
+		}
+		// Only notify sessions with an actual in-flight turn. A live agent
+		// session that has already finished its turn is not interrupted.
+		if busy == nil || !busy.Busy() {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := p.Send(ctx, rctx, text)
+		cancel()
+		if err != nil {
+			slog.Warn("shutdown notify: send failed", "platform", p.Name(), "error", err)
+		}
+	}
+}
+
 func (e *Engine) Stop() error {
 	e.platformLifecycleMu.Lock()
 	e.stopping = true
@@ -6145,6 +6185,14 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			return richCardSupporter.BuildRichCard(status, title, steps, resolveRichCardMarkdown(markdown, !streaming), streaming, statusFooter)
 		}
 
+		// Web-style platforms can subscribe to progress independently of the
+		// global thinking/tool message switches, so the dashboard sees reasoning
+		// steps without raising the noise level of IM platforms.
+		wantProgress := false
+		if po, ok := p.(ProgressObserver); ok {
+			wantProgress = po.WantsProgress(replyCtx)
+		}
+
 		switch event.Type {
 		case EventModelSwitch:
 			e.relayModelSwitch(p, replyCtx, sessionKey, event.ModelSwitch)
@@ -6163,6 +6211,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventThinking:
 			if isEllipsisOnly(event.Content) {
+				break
+			}
+			if wantProgress && !e.display.ThinkingMessages {
+				preview := truncateIf(event.Content, e.display.ThinkingMaxLen)
+				if strings.TrimSpace(preview) != "" {
+					thinkingMsg := fmt.Sprintf(e.i18n.T(MsgThinking), preview)
+					session.AddProgress("thinking", thinkingMsg)
+					if sp.canPreview() {
+						sp.freeze()
+						sp.detachPreview()
+					}
+					sendProgress(p, replyCtx, thinkingMsg)
+				}
 				break
 			}
 			if hasRichCard {
@@ -6258,6 +6319,18 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventToolUse:
 			toolCount++
+			if wantProgress && !e.display.ToolMessages {
+				toolMsg := e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen)
+				session.AddProgress("tool", toolMsg)
+				if sp.canPreview() {
+					sp.freeze()
+					sp.detachPreview()
+				}
+				for _, chunk := range SplitMessageCodeFenceAware(toolMsg, maxPlatformMessageLen) {
+					sendProgress(p, replyCtx, chunk)
+				}
+				break
+			}
 			if hasRichCard {
 				// When tool messages are suppressed, skip card updates on tool events.
 				if !e.display.ToolMessages {
@@ -6362,25 +6435,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if toolInput != event.ToolInput {
 					toolInput = truncateIf(toolInput, e.display.ToolMaxLen)
 				}
-				var formattedInput string
-				if toolInput == "" {
-					formattedInput = ""
-				} else if strings.EqualFold(event.ToolName, "TodoWrite") && toolInput != event.ToolInput {
-					formattedInput = toolInput
-				} else if strings.Contains(toolInput, "```") {
-					formattedInput = toolInput
-				} else if strings.Contains(toolInput, "\n") || utf8.RuneCountInString(toolInput) > 200 {
-					lang := toolCodeLang(event.ToolName, toolInput)
-					formattedInput = fmt.Sprintf("```%s\n%s\n```", lang, toolInput)
-				} else {
-					switch event.ToolName {
-					case "shell", "run_shell_command", "Bash":
-						formattedInput = fmt.Sprintf("```bash\n%s\n```", toolInput)
-					default:
-						formattedInput = fmt.Sprintf("`%s`", toolInput)
-					}
-				}
-				toolMsg := fmt.Sprintf(e.i18n.T(MsgTool), toolCount, event.ToolName, formattedInput)
+				toolMsg := e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen)
 				session.AddProgress("tool", toolMsg)
 				// Truncate the tool input that goes into the progress card payload so
 				// tool_max_len applies uniformly to progress_style=card, matching
@@ -6399,6 +6454,21 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 		case EventToolResult:
+			if wantProgress && !e.display.ToolMessages {
+				result := strings.TrimSpace(event.ToolResult)
+				if result == "" {
+					result = strings.TrimSpace(event.Content)
+				}
+				if result != "" {
+					result = truncateIf(result, e.display.ToolMaxLen)
+				}
+				if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
+					resultMsg := e.formatToolResultEventFallback(event.ToolName, result, event.ToolStatus, event.ToolExitCode, event.ToolSuccess)
+					session.AddProgress("tool_result", resultMsg)
+					sendProgressRaw(p, replyCtx, resultMsg)
+				}
+				break
+			}
 			if e.display.ToolMessages {
 				result := strings.TrimSpace(event.ToolResult)
 				if result == "" {
@@ -17270,6 +17340,34 @@ func toolCodeLang(toolName, input string) string {
 		return "diff"
 	}
 	return ""
+}
+
+// formatToolUseEvent renders the legacy "tool #n" progress line. Shared by the
+// normal path and the progress-observer fast path.
+func (e *Engine) formatToolUseEvent(event Event, toolCount, maxLen int) string {
+	toolInput := formatToolInput(event.ToolName, event.ToolInput)
+	if toolInput != event.ToolInput {
+		toolInput = truncateIf(toolInput, maxLen)
+	}
+	var formattedInput string
+	if toolInput == "" {
+		formattedInput = ""
+	} else if strings.EqualFold(event.ToolName, "TodoWrite") && toolInput != event.ToolInput {
+		formattedInput = toolInput
+	} else if strings.Contains(toolInput, "```") {
+		formattedInput = toolInput
+	} else if strings.Contains(toolInput, "\n") || utf8.RuneCountInString(toolInput) > 200 {
+		lang := toolCodeLang(event.ToolName, toolInput)
+		formattedInput = fmt.Sprintf("```%s\n%s\n```", lang, toolInput)
+	} else {
+		switch event.ToolName {
+		case "shell", "run_shell_command", "Bash":
+			formattedInput = fmt.Sprintf("```bash\n%s\n```", toolInput)
+		default:
+			formattedInput = fmt.Sprintf("`%s`", toolInput)
+		}
+	}
+	return fmt.Sprintf(e.i18n.T(MsgTool), toolCount, event.ToolName, formattedInput)
 }
 
 func (e *Engine) formatToolResultEventFallback(toolName, result, status string, exitCode *int, success *bool) string {

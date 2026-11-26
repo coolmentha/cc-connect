@@ -314,6 +314,14 @@ type ProgressMessageSender interface {
 	SendProgress(ctx context.Context, replyCtx any, content string) error
 }
 
+// ProgressObserver is an optional interface for platforms that want progress
+// even when the global [display] thinking_messages/tool_messages switches are
+// off. The web dashboard uses this so its viewers see reasoning steps without
+// changing the noise level of IM platforms.
+type ProgressObserver interface {
+	WantsProgress(replyCtx any) bool
+}
+
 // CardSender is an optional interface for platforms that support sending
 // structured rich cards (e.g. Feishu Interactive Card). Platforms that do not
 // implement this interface will receive a plain-text fallback via Card.RenderText().

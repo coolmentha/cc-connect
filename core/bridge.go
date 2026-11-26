@@ -577,6 +577,18 @@ func (bp *BridgePlatform) SendProgress(ctx context.Context, replyCtx any, conten
 	})
 }
 
+// WantsProgress reports whether the connected adapter subscribed to progress
+// messages. The engine uses this to keep the web dashboard's reasoning steps
+// visible even when global thinking/tool message switches are off.
+func (bp *BridgePlatform) WantsProgress(replyCtx any) bool {
+	rc, ok := replyCtx.(*bridgeReplyCtx)
+	if !ok {
+		return false
+	}
+	a := bp.server.getAdapter(rc.Platform)
+	return a != nil && a.capabilities["progress"]
+}
+
 func (bp *BridgePlatform) UpdateMessage(ctx context.Context, replyCtx any, content string) error {
 	rc, ok := replyCtx.(*bridgeReplyCtx)
 	if !ok {
