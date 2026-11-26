@@ -202,14 +202,15 @@ const (
 // ProgressEvent is one intermediate step (thinking, tool call, tool result)
 // shown by the web dashboard.
 type ProgressEvent struct {
-	Kind      string // "thinking" | "tool" | "tool_result"
-	Content   string // human-readable fallback text
-	ToolName  string
-	ToolInput string
-	ToolIndex int
-	Status    string
-	ExitCode  *int
-	Success   *bool
+	Kind       string // "thinking" | "tool" | "tool_result"
+	Content    string // human-readable fallback text
+	ToolName   string
+	ToolInput  string
+	ToolIndex  int
+	Status     string
+	ExitCode   *int
+	Success    *bool
+	DurationMs int64
 }
 
 // AddProgress records one intermediate thinking/tool entry for display. It is
@@ -237,16 +238,17 @@ func (s *Session) AddProgressEntry(ev ProgressEvent) {
 		return
 	}
 	s.Progress = append(s.Progress, HistoryEntry{
-		Role:      "progress",
-		Kind:      ev.Kind,
-		Content:   content,
-		ToolName:  ev.ToolName,
-		ToolInput: toolInput,
-		ToolIndex: ev.ToolIndex,
-		Status:    ev.Status,
-		ExitCode:  ev.ExitCode,
-		Success:   ev.Success,
-		Timestamp: time.Now(),
+		Role:       "progress",
+		Kind:       ev.Kind,
+		Content:    content,
+		ToolName:   ev.ToolName,
+		ToolInput:  toolInput,
+		ToolIndex:  ev.ToolIndex,
+		Status:     ev.Status,
+		ExitCode:   ev.ExitCode,
+		Success:    ev.Success,
+		DurationMs: ev.DurationMs,
+		Timestamp:  time.Now(),
 	})
 	if len(s.Progress) > maxProgressEntries {
 		s.Progress = append([]HistoryEntry(nil), s.Progress[len(s.Progress)-maxProgressEntries:]...)

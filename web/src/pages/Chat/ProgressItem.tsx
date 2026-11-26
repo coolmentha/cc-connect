@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Brain, Terminal, FileText, FileSearch, Search, Globe, Wrench,
-  CheckCircle2, XCircle, ChevronRight, Copy, Check,
+  CheckCircle2, XCircle, ChevronRight, Copy, Check, Clock,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -14,6 +14,7 @@ export interface ProgressResult {
   status?: string;
   exitCode?: number;
   success?: boolean;
+  durationMs?: number;
 }
 
 export interface ProgressData {
@@ -25,7 +26,17 @@ export interface ProgressData {
   status?: string;
   exitCode?: number;
   success?: boolean;
+  durationMs?: number;
   result?: ProgressResult;
+}
+
+export function formatDuration(ms?: number): string {
+  if (!ms || ms <= 0) return '';
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m${seconds}s`;
 }
 
 interface Parsed {
@@ -37,6 +48,7 @@ interface Parsed {
   status?: string;
   exitCode?: number;
   success?: boolean;
+  durationMs?: number;
   result?: ProgressResult;
 }
 
@@ -127,6 +139,7 @@ function normalize(data: ProgressData): Parsed {
     status: data.status,
     exitCode: data.exitCode,
     success: data.success,
+    durationMs: data.durationMs,
     result: data.result,
   };
 }
@@ -188,6 +201,11 @@ function ResultBody({ result }: { result: ProgressResult }) {
           <span className="text-[10px] text-gray-400">exit {result.exitCode}</span>
         )}
         {result.status && <span className="text-[10px] text-gray-400 truncate">{result.status}</span>}
+        {formatDuration(result.durationMs) && (
+          <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+            <Clock size={10} />{formatDuration(result.durationMs)}
+          </span>
+        )}
         <span className="ml-auto" />
         <CopyButton text={result.content} />
       </div>
@@ -226,6 +244,11 @@ function ToolItem({ p, defaultOpen }: { p: Parsed; defaultOpen?: boolean }) {
         )}
         {p.result?.exitCode !== undefined && (
           <span className="text-[10px] text-gray-400 shrink-0">{p.result.exitCode}</span>
+        )}
+        {formatDuration(p.result?.durationMs ?? p.durationMs) && (
+          <span className="text-[10px] text-gray-400 shrink-0 flex items-center gap-0.5">
+            <Clock size={10} />{formatDuration(p.result?.durationMs ?? p.durationMs)}
+          </span>
         )}
         <ChevronRight size={13} className="text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
       </summary>
@@ -270,6 +293,11 @@ function ResultItem({ p, defaultOpen }: { p: Parsed; defaultOpen?: boolean }) {
         </span>
         {p.exitCode !== undefined && <span className="text-[10px] text-gray-400">exit {p.exitCode}</span>}
         {p.status && <span className="text-[10px] text-gray-400 truncate">{p.status}</span>}
+        {formatDuration(p.durationMs) && (
+          <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+            <Clock size={10} />{formatDuration(p.durationMs)}
+          </span>
+        )}
         <ChevronRight size={12} className="text-gray-400 group-open:rotate-90 transition-transform ml-auto shrink-0" />
       </summary>
       <div className="border-t border-gray-200/60 dark:border-white/[0.06] px-3 py-2">

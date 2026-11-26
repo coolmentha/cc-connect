@@ -5,7 +5,7 @@ import {
   ArrowLeft, Send, User, Bot, Circle, WifiOff,
   Copy, Check, FileText, Image as ImageIcon, Loader2,
   Slash, ChevronDown, ChevronRight, Paperclip, X, Download, Music, Video,
-  Activity, XCircle,
+  Activity, XCircle, Clock,
 } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
 import { listSessions, getSession, deleteSession, renameSession, type Session, type SessionDetail } from '@/api/sessions';
@@ -17,7 +17,7 @@ import { webSessionKey as makeWebSessionKey, webUserId, webUserName, webPlatform
 import { notify } from '@/lib/notify';
 import CommandPalette, { type SlashCommand, slashCommands } from './CommandPalette';
 import SessionDrawer from './SessionDrawer';
-import ProgressItem, { type ProgressData } from './ProgressItem';
+import ProgressItem, { type ProgressData, formatDuration } from './ProgressItem';
 import CommandResultPanel, { type CommandResult } from './CommandResultPanel';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -129,6 +129,8 @@ function ProgressGroup({ items }: { items: ChatMsg[] }) {
   const toolCount = items.filter((m) => m.progress?.kind === 'tool').length;
   const failed = items.some((m) => m.progress?.result?.success === false ||
     (m.progress?.result?.exitCode !== undefined && m.progress.result.exitCode !== 0));
+  const totalMs = items.reduce((sum, m) =>
+    sum + (m.progress?.result?.durationMs ?? m.progress?.durationMs ?? 0), 0);
   return (
     <div className="flex gap-3 justify-start">
       <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
@@ -147,11 +149,16 @@ function ProgressGroup({ items }: { items: ChatMsg[] }) {
             </span>
           )}
           {failed && <XCircle size={12} className="text-red-500 shrink-0" />}
+          {formatDuration(totalMs) && (
+            <span className="text-[10px] text-gray-400 shrink-0 flex items-center gap-0.5">
+              <Clock size={10} />{formatDuration(totalMs)}
+            </span>
+          )}
           <ChevronRight size={13} className="ml-auto text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
         </summary>
         <div className="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-2">
           {items.map((m) => (
-            <ProgressItem key={m.id} data={m.progress || { content: m.content }} defaultOpen />
+            <ProgressItem key={m.id} data={m.progress || { content: m.content }} />
           ))}
         </div>
       </details>
@@ -198,6 +205,7 @@ function mergeProgress(list: ChatMsg[], data: ProgressData, id: string, timestam
             status: data.status,
             exitCode: data.exitCode,
             success: data.success,
+            durationMs: data.durationMs,
           },
         },
       };
@@ -239,6 +247,7 @@ function detailToMessages(detail: SessionDetail): ChatMsg[] {
       status: p.status,
       exitCode: p.exit_code,
       success: p.success,
+      durationMs: p.duration_ms,
     };
     out = mergeProgress(out, data, `progress-hist-${i}`, p.timestamp);
   });
@@ -629,6 +638,7 @@ export default function ChatView() {
           status: progress.status,
           exitCode: progress.exit_code,
           success: progress.success,
+          durationMs: progress.duration_ms,
         };
         setMessages(prev => mergeProgress(prev, data, `progress-${Date.now()}-${prev.length}`));
       }

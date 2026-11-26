@@ -37,6 +37,7 @@ export interface ProgressEntry {
   status?: string;
   exit_code?: number;
   success?: boolean;
+  duration_ms?: number;
 }
 
 export interface SessionDetail extends Session {

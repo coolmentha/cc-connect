@@ -5998,6 +5998,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 	// Streaming card: aggregate entire turn into a single updatable card.
 	var streamCard StreamingCard
+	// Tool start times let us report per-tool latency in the web dashboard.
+	toolStartTimes := make(map[int]time.Time)
 	var cardToolCalls []cardToolEntry  // track tool calls for card content
 	var cardThinkingText string        // latest thinking text
 	var cardAnswerText strings.Builder // accumulated answer text
@@ -6338,6 +6340,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventToolUse:
 			toolCount++
+			toolStartTimes[toolCount] = time.Now()
 			toolMsg := e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen)
 			toolEV := ProgressEvent{
 				Kind:      "tool",
@@ -6486,14 +6489,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			resultEV := ProgressEvent{}
 			if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
 				resultMsg := e.formatToolResultEventFallback(event.ToolName, result, event.ToolStatus, event.ToolExitCode, event.ToolSuccess)
+				var durationMs int64
+				if started, ok := toolStartTimes[toolCount]; ok {
+					durationMs = time.Since(started).Milliseconds()
+				}
 				resultEV = ProgressEvent{
-					Kind:      "tool_result",
-					Content:   resultMsg,
-					ToolName:  event.ToolName,
-					ToolIndex: toolCount,
-					Status:    event.ToolStatus,
-					ExitCode:  event.ToolExitCode,
-					Success:   event.ToolSuccess,
+					Kind:       "tool_result",
+					Content:    resultMsg,
+					ToolName:   event.ToolName,
+					ToolIndex:  toolCount,
+					Status:     event.ToolStatus,
+					ExitCode:   event.ToolExitCode,
+					Success:    event.ToolSuccess,
+					DurationMs: durationMs,
 				}
 				session.AddProgressEntry(resultEV)
 			}

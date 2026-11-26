@@ -547,6 +547,8 @@ type HistoryEntry struct {
 	Status    string `json:"status,omitempty"`
 	ExitCode  *int   `json:"exit_code,omitempty"`
 	Success   *bool  `json:"success,omitempty"`
+	// DurationMs is the observed tool runtime (tool use → tool result).
+	DurationMs int64 `json:"duration_ms,omitempty"`
 }
 
 // AgentSessionInfo describes one session as reported by the agent backend.

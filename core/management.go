@@ -1650,6 +1650,9 @@ func (m *ManagementServer) handleProjectSessionDetail(w http.ResponseWriter, r *
 			if p.Success != nil {
 				entry["success"] = *p.Success
 			}
+			if p.DurationMs > 0 {
+				entry["duration_ms"] = p.DurationMs
+			}
 			progressJSON[i] = entry
 		}
 

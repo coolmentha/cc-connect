@@ -602,6 +602,9 @@ func (bp *BridgePlatform) SendProgressEvent(ctx context.Context, replyCtx any, e
 	if ev.Success != nil {
 		payload["success"] = *ev.Success
 	}
+	if ev.DurationMs > 0 {
+		payload["duration_ms"] = ev.DurationMs
+	}
 	return bp.server.sendToAdapter(rc.Platform, payload)
 }
 
