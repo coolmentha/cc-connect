@@ -6000,6 +6000,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	var streamCard StreamingCard
 	// Tool start times let us report per-tool latency in the web dashboard.
 	toolStartTimes := make(map[int]time.Time)
+	var toolTotalMs int64
 	var cardToolCalls []cardToolEntry  // track tool calls for card content
 	var cardThinkingText string        // latest thinking text
 	var cardAnswerText strings.Builder // accumulated answer text
@@ -6493,6 +6494,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				if started, ok := toolStartTimes[toolCount]; ok {
 					durationMs = time.Since(started).Milliseconds()
 				}
+				toolTotalMs += durationMs
 				resultEV = ProgressEvent{
 					Kind:       "tool_result",
 					Content:    resultMsg,
@@ -7078,6 +7080,34 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 			e.addUsage(event.InputTokens, event.OutputTokens)
 			turnDuration := time.Since(turnStart)
+
+			// Persist and (for web observers) surface a per-turn timing summary
+			// that includes model/API time, tool time and token usage.
+			turnMs := turnDuration.Milliseconds()
+			if event.DurationMs > 0 {
+				turnMs = event.DurationMs
+			}
+			modelMs := event.APIDurationMs
+			if modelMs <= 0 {
+				modelMs = turnMs - toolTotalMs
+				if modelMs < 0 {
+					modelMs = 0
+				}
+			}
+			statsEV := ProgressEvent{
+				Kind:         "turn_stats",
+				Content:      fmt.Sprintf("%dms", turnMs),
+				DurationMs:   turnMs,
+				ModelMs:      modelMs,
+				ToolMs:       toolTotalMs,
+				InputTokens:  event.InputTokens,
+				OutputTokens: event.OutputTokens,
+			}
+			session.AddProgressEntry(statsEV)
+			if wantProgress {
+				sendProgressEvent(p, replyCtx, statsEV)
+			}
+
 			slog.Info("turn complete",
 				"session", session.ID,
 				"agent_session", session.GetAgentSessionID(),

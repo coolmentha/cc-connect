@@ -38,6 +38,10 @@ export interface ProgressEntry {
   exit_code?: number;
   success?: boolean;
   duration_ms?: number;
+  model_ms?: number;
+  tool_ms?: number;
+  input_tokens?: number;
+  output_tokens?: number;
 }
 
 export interface SessionDetail extends Session {

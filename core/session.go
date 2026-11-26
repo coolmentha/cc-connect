@@ -211,6 +211,11 @@ type ProgressEvent struct {
 	ExitCode   *int
 	Success    *bool
 	DurationMs int64
+	// Turn statistics (Kind == "turn_stats").
+	ModelMs      int64
+	ToolMs       int64
+	InputTokens  int
+	OutputTokens int
 }
 
 // AddProgress records one intermediate thinking/tool entry for display. It is
@@ -225,7 +230,7 @@ func (s *Session) AddProgressEntry(ev ProgressEvent) {
 	if content == "" && ev.Kind == "tool" {
 		content = ev.ToolName
 	}
-	if content == "" {
+	if content == "" && ev.Kind != "turn_stats" {
 		return
 	}
 	content = truncateIf(content, maxProgressEntryRunes)
@@ -233,22 +238,29 @@ func (s *Session) AddProgressEntry(ev ProgressEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Deduplicate identical adjacent entries: callers may record progress in
-	// both the "always persist" path and the display path.
-	if n := len(s.Progress); n > 0 && s.Progress[n-1].Kind == ev.Kind && s.Progress[n-1].Content == content && s.Progress[n-1].ToolInput == toolInput {
-		return
+	// both the "always persist" path and the display path. Turn stats are
+	// exempt because two turns can legitimately have identical numbers.
+	if ev.Kind != "turn_stats" {
+		if n := len(s.Progress); n > 0 && s.Progress[n-1].Kind == ev.Kind && s.Progress[n-1].Content == content && s.Progress[n-1].ToolInput == toolInput {
+			return
+		}
 	}
 	s.Progress = append(s.Progress, HistoryEntry{
-		Role:       "progress",
-		Kind:       ev.Kind,
-		Content:    content,
-		ToolName:   ev.ToolName,
-		ToolInput:  toolInput,
-		ToolIndex:  ev.ToolIndex,
-		Status:     ev.Status,
-		ExitCode:   ev.ExitCode,
-		Success:    ev.Success,
-		DurationMs: ev.DurationMs,
-		Timestamp:  time.Now(),
+		Role:         "progress",
+		Kind:         ev.Kind,
+		Content:      content,
+		ToolName:     ev.ToolName,
+		ToolInput:    toolInput,
+		ToolIndex:    ev.ToolIndex,
+		Status:       ev.Status,
+		ExitCode:     ev.ExitCode,
+		Success:      ev.Success,
+		DurationMs:   ev.DurationMs,
+		ModelMs:      ev.ModelMs,
+		ToolMs:       ev.ToolMs,
+		InputTokens:  ev.InputTokens,
+		OutputTokens: ev.OutputTokens,
+		Timestamp:    time.Now(),
 	})
 	if len(s.Progress) > maxProgressEntries {
 		s.Progress = append([]HistoryEntry(nil), s.Progress[len(s.Progress)-maxProgressEntries:]...)

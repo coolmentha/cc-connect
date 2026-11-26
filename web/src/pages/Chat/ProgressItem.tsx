@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Brain, Terminal, FileText, FileSearch, Search, Globe, Wrench,
-  CheckCircle2, XCircle, ChevronRight, Copy, Check, Clock,
+  CheckCircle2, XCircle, ChevronRight, Copy, Check, Clock, Activity,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -27,6 +27,10 @@ export interface ProgressData {
   exitCode?: number;
   success?: boolean;
   durationMs?: number;
+  modelMs?: number;
+  toolMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   result?: ProgressResult;
 }
 
@@ -40,7 +44,7 @@ export function formatDuration(ms?: number): string {
 }
 
 interface Parsed {
-  kind: 'thinking' | 'tool' | 'tool_result';
+  kind: 'thinking' | 'tool' | 'tool_result' | 'turn_stats';
   content: string;
   toolName?: string;
   toolInput?: string;
@@ -49,6 +53,10 @@ interface Parsed {
   exitCode?: number;
   success?: boolean;
   durationMs?: number;
+  modelMs?: number;
+  toolMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   result?: ProgressResult;
 }
 
@@ -129,7 +137,10 @@ function CopyButton({ text }: { text: string }) {
 function normalize(data: ProgressData): Parsed {
   const legacy = parseLegacy(data.content || '');
   const rawKind = data.kind || legacy.kind || 'thinking';
-  const kind: Parsed['kind'] = rawKind === 'tool_result' ? 'tool_result' : rawKind === 'tool' ? 'tool' : 'thinking';
+  const kind: Parsed['kind'] =
+    rawKind === 'tool_result' ? 'tool_result' :
+    rawKind === 'tool' ? 'tool' :
+    rawKind === 'turn_stats' ? 'turn_stats' : 'thinking';
   return {
     kind,
     content: legacy.content ?? data.content ?? '',
@@ -140,12 +151,33 @@ function normalize(data: ProgressData): Parsed {
     exitCode: data.exitCode,
     success: data.success,
     durationMs: data.durationMs,
+    modelMs: data.modelMs,
+    toolMs: data.toolMs,
+    inputTokens: data.inputTokens,
+    outputTokens: data.outputTokens,
     result: data.result,
   };
 }
 
+export function TurnStatsBar({ data }: { data: ProgressData }) {
+  const { t } = useTranslation();
+  const hasTokens = (data.inputTokens ?? 0) > 0 || (data.outputTokens ?? 0) > 0;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-gray-200/70 dark:border-white/[0.08] bg-gray-50/60 dark:bg-white/[0.02] px-4 py-2 text-[11px] text-gray-500 dark:text-gray-400">
+      <Activity size={13} className="text-gray-400 shrink-0" />
+      <span>{t('chat.total', 'Total')} <span className="font-mono text-gray-700 dark:text-gray-200">{formatDuration(data.durationMs) || '-'}</span></span>
+      <span>{t('chat.modelTime', 'Model')} <span className="font-mono text-gray-700 dark:text-gray-200">{formatDuration(data.modelMs) || '-'}</span></span>
+      <span>{t('chat.toolTime', 'Tools')} <span className="font-mono text-gray-700 dark:text-gray-200">{formatDuration(data.toolMs) || '-'}</span></span>
+      {hasTokens && (
+        <span className="font-mono">↑{(data.inputTokens ?? 0).toLocaleString()} ↓{(data.outputTokens ?? 0).toLocaleString()} tokens</span>
+      )}
+    </div>
+  );
+}
+
 export default function ProgressItem({ data, defaultOpen = false }: { data: ProgressData; defaultOpen?: boolean }) {
   const parsed = useMemo(() => normalize(data), [data]);
+  if (parsed.kind === 'turn_stats') return <TurnStatsBar data={data} />;
   if (parsed.kind === 'tool') return <ToolItem p={parsed} defaultOpen={defaultOpen} />;
   if (parsed.kind === 'tool_result') return <ResultItem p={parsed} defaultOpen={defaultOpen} />;
   return <ThinkingItem p={parsed} defaultOpen={defaultOpen} />;

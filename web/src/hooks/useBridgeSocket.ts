@@ -5,7 +5,7 @@ export type BridgeIncoming =
   | { type: 'register_ack'; ok: boolean; error?: string }
   | { type: 'reply'; session_key: string; reply_ctx: string; content: string; format?: string }
   | { type: 'reply_stream'; session_key: string; reply_ctx: string; delta: string; full_text: string; preview_handle?: string; done: boolean }
-  | { type: 'progress'; session_key: string; reply_ctx: string; content: string; format?: string; kind?: string; tool_name?: string; tool_input?: string; tool_index?: number; status?: string; exit_code?: number; success?: boolean; duration_ms?: number }
+  | { type: 'progress'; session_key: string; reply_ctx: string; content: string; format?: string; kind?: string; tool_name?: string; tool_input?: string; tool_index?: number; status?: string; exit_code?: number; success?: boolean; duration_ms?: number; model_ms?: number; tool_ms?: number; input_tokens?: number; output_tokens?: number }
   | { type: 'card'; session_key: string; reply_ctx: string; card: any }
   | { type: 'buttons'; session_key: string; reply_ctx: string; content: string; buttons: { text: string; data: string }[][] }
   | { type: 'image'; session_key: string; reply_ctx: string; data: string; mime_type?: string; file_name?: string }

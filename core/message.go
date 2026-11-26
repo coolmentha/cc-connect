@@ -528,6 +528,10 @@ type Event struct {
 	Metadata                 map[string]any // optional metadata from agent (e.g. compaction_continue)
 	Synthetic                bool           // true if this is a synthetic/generated message (not from real user)
 	ModelSwitch              *ModelSwitch   // populated for EventModelSwitch
+	// Timing reported by the agent for a completed turn.
+	DurationMs    int64 // total turn duration reported by the agent
+	APIDurationMs int64 // model/API time reported by the agent
+	NumTurns      int   // number of model sub-turns in this turn
 }
 
 // HistoryEntry is one turn in a conversation.
@@ -549,6 +553,11 @@ type HistoryEntry struct {
 	Success   *bool  `json:"success,omitempty"`
 	// DurationMs is the observed tool runtime (tool use → tool result).
 	DurationMs int64 `json:"duration_ms,omitempty"`
+	// Turn statistics (kind == "turn_stats").
+	ModelMs      int64 `json:"model_ms,omitempty"`
+	ToolMs       int64 `json:"tool_ms,omitempty"`
+	InputTokens  int   `json:"input_tokens,omitempty"`
+	OutputTokens int   `json:"output_tokens,omitempty"`
 }
 
 // AgentSessionInfo describes one session as reported by the agent backend.

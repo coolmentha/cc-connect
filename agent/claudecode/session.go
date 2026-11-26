@@ -1408,6 +1408,10 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 	}
 	cs.usageMu.Unlock()
 
+	durationMs := int64FromAny(raw["duration_ms"])
+	apiDurationMs := int64FromAny(raw["duration_api_ms"])
+	numTurns := int(int64FromAny(raw["num_turns"]))
+
 	evt := core.Event{
 		Type:                     core.EventResult,
 		Content:                  content,
@@ -1417,12 +1421,30 @@ func (cs *claudeSession) handleResult(raw map[string]any) {
 		OutputTokens:             outputTokens,
 		CacheCreationInputTokens: cacheCreationTokens,
 		CacheReadInputTokens:     cacheReadTokens,
+		DurationMs:               durationMs,
+		APIDurationMs:            apiDurationMs,
+		NumTurns:                 numTurns,
 	}
 	select {
 	case cs.events <- evt:
 	case <-cs.ctx.Done():
 		return
 	}
+}
+
+func int64FromAny(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return i
+	}
+	return 0
 }
 
 func (cs *claudeSession) handleControlRequest(raw map[string]any) {

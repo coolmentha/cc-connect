@@ -405,6 +405,9 @@
     "sendPath": "Путь отправки сообщений (API)"
   },
   "chat": {
+    "total": "Total",
+    "modelTime": "Model",
+    "toolTime": "Tools",
     "execution": "Execution",
     "steps": "{{count}} steps",
     "toolCount": "{{count}} tools",

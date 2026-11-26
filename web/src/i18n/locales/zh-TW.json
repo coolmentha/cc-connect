@@ -405,6 +405,9 @@
     "sendPath": "訊息發送路徑（出站 API）"
   },
   "chat": {
+    "total": "总耗时",
+    "modelTime": "模型",
+    "toolTime": "工具",
     "execution": "执行过程",
     "steps": "{{count}} 步",
     "toolCount": "{{count}} 个工具",

@@ -605,6 +605,18 @@ func (bp *BridgePlatform) SendProgressEvent(ctx context.Context, replyCtx any, e
 	if ev.DurationMs > 0 {
 		payload["duration_ms"] = ev.DurationMs
 	}
+	if ev.ModelMs > 0 {
+		payload["model_ms"] = ev.ModelMs
+	}
+	if ev.ToolMs > 0 {
+		payload["tool_ms"] = ev.ToolMs
+	}
+	if ev.InputTokens > 0 {
+		payload["input_tokens"] = ev.InputTokens
+	}
+	if ev.OutputTokens > 0 {
+		payload["output_tokens"] = ev.OutputTokens
+	}
 	return bp.server.sendToAdapter(rc.Platform, payload)
 }
 

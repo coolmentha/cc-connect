@@ -1653,6 +1653,18 @@ func (m *ManagementServer) handleProjectSessionDetail(w http.ResponseWriter, r *
 			if p.DurationMs > 0 {
 				entry["duration_ms"] = p.DurationMs
 			}
+			if p.ModelMs > 0 {
+				entry["model_ms"] = p.ModelMs
+			}
+			if p.ToolMs > 0 {
+				entry["tool_ms"] = p.ToolMs
+			}
+			if p.InputTokens > 0 {
+				entry["input_tokens"] = p.InputTokens
+			}
+			if p.OutputTokens > 0 {
+				entry["output_tokens"] = p.OutputTokens
+			}
 			progressJSON[i] = entry
 		}
 

@@ -405,6 +405,9 @@
     "sendPath": "Ruta de envío (API saliente)"
   },
   "chat": {
+    "total": "Total",
+    "modelTime": "Model",
+    "toolTime": "Tools",
     "execution": "Execution",
     "steps": "{{count}} steps",
     "toolCount": "{{count}} tools",

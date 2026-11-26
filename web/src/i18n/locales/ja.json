@@ -405,6 +405,9 @@
     "sendPath": "送信 API パス"
   },
   "chat": {
+    "total": "Total",
+    "modelTime": "Model",
+    "toolTime": "Tools",
     "execution": "Execution",
     "steps": "{{count}} steps",
     "toolCount": "{{count}} tools",

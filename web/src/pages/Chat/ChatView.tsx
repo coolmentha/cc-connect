@@ -17,7 +17,7 @@ import { webSessionKey as makeWebSessionKey, webUserId, webUserName, webPlatform
 import { notify } from '@/lib/notify';
 import CommandPalette, { type SlashCommand, slashCommands } from './CommandPalette';
 import SessionDrawer from './SessionDrawer';
-import ProgressItem, { type ProgressData, formatDuration } from './ProgressItem';
+import ProgressItem, { type ProgressData, formatDuration, TurnStatsBar } from './ProgressItem';
 import CommandResultPanel, { type CommandResult } from './CommandResultPanel';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -126,11 +126,27 @@ const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 // It is closed by default; opening it reveals every step at once.
 function ProgressGroup({ items }: { items: ChatMsg[] }) {
   const { t } = useTranslation();
-  const toolCount = items.filter((m) => m.progress?.kind === 'tool').length;
-  const failed = items.some((m) => m.progress?.result?.success === false ||
+  const stats = items.find((m) => m.progress?.kind === 'turn_stats')?.progress;
+  const steps = items.filter((m) => m.progress?.kind !== 'turn_stats');
+  const toolCount = steps.filter((m) => m.progress?.kind === 'tool').length;
+  const failed = steps.some((m) => m.progress?.result?.success === false ||
     (m.progress?.result?.exitCode !== undefined && m.progress.result.exitCode !== 0));
-  const totalMs = items.reduce((sum, m) =>
+  const toolMs = stats?.toolMs ?? steps.reduce((sum, m) =>
     sum + (m.progress?.result?.durationMs ?? m.progress?.durationMs ?? 0), 0);
+
+  if (steps.length === 0 && stats) {
+    return (
+      <div className="flex gap-3 justify-start">
+        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
+          <Bot size={16} className="text-accent" />
+        </div>
+        <div className="w-full max-w-[85%]">
+          <TurnStatsBar data={stats} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex gap-3 justify-start">
       <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
@@ -142,22 +158,28 @@ function ProgressGroup({ items }: { items: ChatMsg[] }) {
           <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
             {t('chat.execution', 'Execution')}
           </span>
-          <span className="text-[11px] text-gray-400">{t('chat.steps', { count: items.length })}</span>
+          <span className="text-[11px] text-gray-400">{t('chat.steps', { count: steps.length })}</span>
           {toolCount > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
               {t('chat.toolCount', { count: toolCount })}
             </span>
           )}
           {failed && <XCircle size={12} className="text-red-500 shrink-0" />}
-          {formatDuration(totalMs) && (
-            <span className="text-[10px] text-gray-400 shrink-0 flex items-center gap-0.5">
-              <Clock size={10} />{formatDuration(totalMs)}
+          {stats ? (
+            <span className="flex items-center gap-2 text-[10px] text-gray-400 shrink-0">
+              <span className="flex items-center gap-0.5"><Clock size={10} />{formatDuration(stats.durationMs) || '-'}</span>
+              <span>{t('chat.modelTime', 'Model')} {formatDuration(stats.modelMs) || '-'}</span>
+              <span>{t('chat.toolTime', 'Tools')} {formatDuration(toolMs) || '-'}</span>
             </span>
-          )}
+          ) : formatDuration(toolMs) ? (
+            <span className="text-[10px] text-gray-400 shrink-0 flex items-center gap-0.5">
+              <Clock size={10} />{formatDuration(toolMs)}
+            </span>
+          ) : null}
           <ChevronRight size={13} className="ml-auto text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
         </summary>
         <div className="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-2">
-          {items.map((m) => (
+          {steps.map((m) => (
             <ProgressItem key={m.id} data={m.progress || { content: m.content }} />
           ))}
         </div>
@@ -248,6 +270,10 @@ function detailToMessages(detail: SessionDetail): ChatMsg[] {
       exitCode: p.exit_code,
       success: p.success,
       durationMs: p.duration_ms,
+      modelMs: p.model_ms,
+      toolMs: p.tool_ms,
+      inputTokens: p.input_tokens,
+      outputTokens: p.output_tokens,
     };
     out = mergeProgress(out, data, `progress-hist-${i}`, p.timestamp);
   });
@@ -639,6 +665,10 @@ export default function ChatView() {
           exitCode: progress.exit_code,
           success: progress.success,
           durationMs: progress.duration_ms,
+          modelMs: progress.model_ms,
+          toolMs: progress.tool_ms,
+          inputTokens: progress.input_tokens,
+          outputTokens: progress.output_tokens,
         };
         setMessages(prev => mergeProgress(prev, data, `progress-${Date.now()}-${prev.length}`));
       }
