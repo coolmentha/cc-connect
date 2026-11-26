@@ -6213,6 +6213,12 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if isEllipsisOnly(event.Content) {
 				break
 			}
+			// Persist progress for every platform so the web dashboard can show
+			// the reasoning process even when IM display switches are off.
+			progressPreview := truncateIf(event.Content, e.display.ThinkingMaxLen)
+			if strings.TrimSpace(progressPreview) != "" {
+				session.AddProgress("thinking", fmt.Sprintf(e.i18n.T(MsgThinking), progressPreview))
+			}
 			if wantProgress && !e.display.ThinkingMessages {
 				preview := truncateIf(event.Content, e.display.ThinkingMaxLen)
 				if strings.TrimSpace(preview) != "" {
@@ -6319,6 +6325,8 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 		case EventToolUse:
 			toolCount++
+			// Record for the web dashboard regardless of IM display settings.
+			session.AddProgress("tool", e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen))
 			if wantProgress && !e.display.ToolMessages {
 				toolMsg := e.formatToolUseEvent(event, toolCount, e.display.ToolMaxLen)
 				session.AddProgress("tool", toolMsg)
@@ -6454,6 +6462,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 
 		case EventToolResult:
+			{
+				// Record for the web dashboard regardless of IM display settings.
+				result := strings.TrimSpace(event.ToolResult)
+				if result == "" {
+					result = strings.TrimSpace(event.Content)
+				}
+				if result != "" {
+					result = truncateIf(result, e.display.ToolMaxLen)
+				}
+				if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
+					session.AddProgress("tool_result", e.formatToolResultEventFallback(event.ToolName, result, event.ToolStatus, event.ToolExitCode, event.ToolSuccess))
+				}
+			}
 			if wantProgress && !e.display.ToolMessages {
 				result := strings.TrimSpace(event.ToolResult)
 				if result == "" {

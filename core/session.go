@@ -208,6 +208,11 @@ func (s *Session) AddProgress(kind, content string) {
 	content = truncateIf(content, maxProgressEntryRunes)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Deduplicate identical adjacent entries: callers may record progress in
+	// both the "always persist" path and the display path.
+	if n := len(s.Progress); n > 0 && s.Progress[n-1].Kind == kind && s.Progress[n-1].Content == content {
+		return
+	}
 	s.Progress = append(s.Progress, HistoryEntry{
 		Role:      "progress",
 		Kind:      kind,
