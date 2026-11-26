@@ -1659,6 +1659,15 @@ func (m *ManagementServer) handleProjectSessionDetail(w http.ResponseWriter, r *
 			if p.ToolMs > 0 {
 				entry["tool_ms"] = p.ToolMs
 			}
+			if p.ThinkMs > 0 {
+				entry["think_ms"] = p.ThinkMs
+			}
+			if p.OtherMs > 0 {
+				entry["other_ms"] = p.OtherMs
+			}
+			if p.ModelCalls > 0 {
+				entry["model_calls"] = p.ModelCalls
+			}
 			if p.InputTokens > 0 {
 				entry["input_tokens"] = p.InputTokens
 			}

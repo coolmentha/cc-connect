@@ -6001,6 +6001,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	// Tool start times let us report per-tool latency in the web dashboard.
 	toolStartTimes := make(map[int]time.Time)
 	var toolTotalMs int64
+	// Thinking time is measured as the span between the first thinking event
+	// and the next non-thinking event.
+	var thinkMs int64
+	var thinkingSince time.Time
 	var cardToolCalls []cardToolEntry  // track tool calls for card content
 	var cardThinkingText string        // latest thinking text
 	var cardAnswerText strings.Builder // accumulated answer text
@@ -6208,6 +6212,15 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 		wantProgress := false
 		if po, ok := p.(ProgressObserver); ok {
 			wantProgress = po.WantsProgress(replyCtx)
+		}
+
+		// Track thinking spans for per-turn timing breakdowns.
+		if event.Type != EventThinking && !thinkingSince.IsZero() {
+			thinkMs += time.Since(thinkingSince).Milliseconds()
+			thinkingSince = time.Time{}
+		}
+		if event.Type == EventThinking && thinkingSince.IsZero() {
+			thinkingSince = time.Now()
 		}
 
 		switch event.Type {
@@ -7094,12 +7107,19 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					modelMs = 0
 				}
 			}
+			otherMs := turnMs - modelMs - toolTotalMs
+			if otherMs < 0 {
+				otherMs = 0
+			}
 			statsEV := ProgressEvent{
 				Kind:         "turn_stats",
 				Content:      fmt.Sprintf("%dms", turnMs),
 				DurationMs:   turnMs,
 				ModelMs:      modelMs,
 				ToolMs:       toolTotalMs,
+				ThinkMs:      thinkMs,
+				OtherMs:      otherMs,
+				ModelCalls:   event.NumTurns,
 				InputTokens:  event.InputTokens,
 				OutputTokens: event.OutputTokens,
 			}

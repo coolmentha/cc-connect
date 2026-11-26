@@ -29,6 +29,9 @@ export interface ProgressData {
   durationMs?: number;
   modelMs?: number;
   toolMs?: number;
+  thinkMs?: number;
+  otherMs?: number;
+  modelCalls?: number;
   inputTokens?: number;
   outputTokens?: number;
   result?: ProgressResult;
@@ -55,6 +58,9 @@ interface Parsed {
   durationMs?: number;
   modelMs?: number;
   toolMs?: number;
+  thinkMs?: number;
+  otherMs?: number;
+  modelCalls?: number;
   inputTokens?: number;
   outputTokens?: number;
   result?: ProgressResult;
@@ -153,6 +159,9 @@ function normalize(data: ProgressData): Parsed {
     durationMs: data.durationMs,
     modelMs: data.modelMs,
     toolMs: data.toolMs,
+    thinkMs: data.thinkMs,
+    otherMs: data.otherMs,
+    modelCalls: data.modelCalls,
     inputTokens: data.inputTokens,
     outputTokens: data.outputTokens,
     result: data.result,
@@ -162,14 +171,34 @@ function normalize(data: ProgressData): Parsed {
 export function TurnStatsBar({ data }: { data: ProgressData }) {
   const { t } = useTranslation();
   const hasTokens = (data.inputTokens ?? 0) > 0 || (data.outputTokens ?? 0) > 0;
+  const calls = data.modelCalls ?? 0;
+  const avg = calls > 0 && data.modelMs ? Math.round(data.modelMs / calls) : 0;
+  const hasBreakdown = (data.thinkMs ?? 0) > 0 || (data.otherMs ?? 0) > 0;
+  const value = 'font-mono text-gray-700 dark:text-gray-200';
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-gray-200/70 dark:border-white/[0.08] bg-gray-50/60 dark:bg-white/[0.02] px-4 py-2 text-[11px] text-gray-500 dark:text-gray-400">
-      <Activity size={13} className="text-gray-400 shrink-0" />
-      <span>{t('chat.total', 'Total')} <span className="font-mono text-gray-700 dark:text-gray-200">{formatDuration(data.durationMs) || '-'}</span></span>
-      <span>{t('chat.modelTime', 'Model')} <span className="font-mono text-gray-700 dark:text-gray-200">{formatDuration(data.modelMs) || '-'}</span></span>
-      <span>{t('chat.toolTime', 'Tools')} <span className="font-mono text-gray-700 dark:text-gray-200">{formatDuration(data.toolMs) || '-'}</span></span>
+    <div className="space-y-1 rounded-lg border border-gray-200/70 dark:border-white/[0.08] bg-gray-50/60 dark:bg-white/[0.02] px-4 py-2 text-[11px] text-gray-500 dark:text-gray-400">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Activity size={13} className="text-gray-400 shrink-0" />
+        <span>{t('chat.total', 'Total')} <span className={value}>{formatDuration(data.durationMs) || '-'}</span></span>
+        <span>
+          {t('chat.modelTime', 'Model')}{' '}
+          <span className={value}>{formatDuration(data.modelMs) || '-'}</span>
+          {calls > 0 && (
+            <span className="text-gray-400">
+              {' '}({calls} {t('chat.calls', 'calls')} · {t('chat.avg', 'avg')} {formatDuration(avg) || '-'})
+            </span>
+          )}
+        </span>
+        {hasBreakdown && (
+          <>
+            <span>{t('chat.thinkTime', 'Think')} <span className={value}>{formatDuration(data.thinkMs) || '-'}</span></span>
+            <span>{t('chat.otherTime', 'Other')} <span className={value}>{formatDuration(data.otherMs) || '-'}</span></span>
+          </>
+        )}
+        <span>{t('chat.toolTime', 'Tools')} <span className={value}>{formatDuration(data.toolMs) || '-'}</span></span>
+      </div>
       {hasTokens && (
-        <span className="font-mono">↑{(data.inputTokens ?? 0).toLocaleString()} ↓{(data.outputTokens ?? 0).toLocaleString()} tokens</span>
+        <div className="font-mono">↑{(data.inputTokens ?? 0).toLocaleString()} ↓{(data.outputTokens ?? 0).toLocaleString()} tokens</div>
       )}
     </div>
   );

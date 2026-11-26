@@ -611,6 +611,15 @@ func (bp *BridgePlatform) SendProgressEvent(ctx context.Context, replyCtx any, e
 	if ev.ToolMs > 0 {
 		payload["tool_ms"] = ev.ToolMs
 	}
+	if ev.ThinkMs > 0 {
+		payload["think_ms"] = ev.ThinkMs
+	}
+	if ev.OtherMs > 0 {
+		payload["other_ms"] = ev.OtherMs
+	}
+	if ev.ModelCalls > 0 {
+		payload["model_calls"] = ev.ModelCalls
+	}
 	if ev.InputTokens > 0 {
 		payload["input_tokens"] = ev.InputTokens
 	}

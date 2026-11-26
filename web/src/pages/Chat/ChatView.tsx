@@ -168,7 +168,7 @@ function ProgressGroup({ items }: { items: ChatMsg[] }) {
           {stats ? (
             <span className="flex items-center gap-2 text-[10px] text-gray-400 shrink-0">
               <span className="flex items-center gap-0.5"><Clock size={10} />{formatDuration(stats.durationMs) || '-'}</span>
-              <span>{t('chat.modelTime', 'Model')} {formatDuration(stats.modelMs) || '-'}</span>
+              <span>{t('chat.modelTime', 'Model')} {formatDuration(stats.modelMs) || '-'}{stats.modelCalls ? ` (${stats.modelCalls})` : ''}</span>
               <span>{t('chat.toolTime', 'Tools')} {formatDuration(toolMs) || '-'}</span>
             </span>
           ) : formatDuration(toolMs) ? (
@@ -179,6 +179,7 @@ function ProgressGroup({ items }: { items: ChatMsg[] }) {
           <ChevronRight size={13} className="ml-auto text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
         </summary>
         <div className="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-2">
+          {stats && <TurnStatsBar data={stats} />}
           {steps.map((m) => (
             <ProgressItem key={m.id} data={m.progress || { content: m.content }} />
           ))}
@@ -272,6 +273,9 @@ function detailToMessages(detail: SessionDetail): ChatMsg[] {
       durationMs: p.duration_ms,
       modelMs: p.model_ms,
       toolMs: p.tool_ms,
+      thinkMs: p.think_ms,
+      otherMs: p.other_ms,
+      modelCalls: p.model_calls,
       inputTokens: p.input_tokens,
       outputTokens: p.output_tokens,
     };
@@ -670,6 +674,9 @@ export default function ChatView() {
           durationMs: progress.duration_ms,
           modelMs: progress.model_ms,
           toolMs: progress.tool_ms,
+          thinkMs: progress.think_ms,
+          otherMs: progress.other_ms,
+          modelCalls: progress.model_calls,
           inputTokens: progress.input_tokens,
           outputTokens: progress.output_tokens,
         };

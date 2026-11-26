@@ -214,6 +214,9 @@ type ProgressEvent struct {
 	// Turn statistics (Kind == "turn_stats").
 	ModelMs      int64
 	ToolMs       int64
+	ThinkMs      int64
+	OtherMs      int64
+	ModelCalls   int
 	InputTokens  int
 	OutputTokens int
 }
@@ -258,6 +261,9 @@ func (s *Session) AddProgressEntry(ev ProgressEvent) {
 		DurationMs:   ev.DurationMs,
 		ModelMs:      ev.ModelMs,
 		ToolMs:       ev.ToolMs,
+		ThinkMs:      ev.ThinkMs,
+		OtherMs:      ev.OtherMs,
+		ModelCalls:   ev.ModelCalls,
 		InputTokens:  ev.InputTokens,
 		OutputTokens: ev.OutputTokens,
 		Timestamp:    time.Now(),

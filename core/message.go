@@ -556,6 +556,9 @@ type HistoryEntry struct {
 	// Turn statistics (kind == "turn_stats").
 	ModelMs      int64 `json:"model_ms,omitempty"`
 	ToolMs       int64 `json:"tool_ms,omitempty"`
+	ThinkMs      int64 `json:"think_ms,omitempty"`
+	OtherMs      int64 `json:"other_ms,omitempty"`
+	ModelCalls   int   `json:"model_calls,omitempty"`
 	InputTokens  int   `json:"input_tokens,omitempty"`
 	OutputTokens int   `json:"output_tokens,omitempty"`
 }

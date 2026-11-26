@@ -405,6 +405,10 @@
     "sendPath": "Ruta de envío (API saliente)"
   },
   "chat": {
+    "calls": "calls",
+    "avg": "avg",
+    "thinkTime": "Think",
+    "otherTime": "Other",
     "total": "Total",
     "modelTime": "Model",
     "toolTime": "Tools",

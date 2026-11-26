@@ -40,6 +40,9 @@ export interface ProgressEntry {
   duration_ms?: number;
   model_ms?: number;
   tool_ms?: number;
+  think_ms?: number;
+  other_ms?: number;
+  model_calls?: number;
   input_tokens?: number;
   output_tokens?: number;
 }

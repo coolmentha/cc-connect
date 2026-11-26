@@ -405,6 +405,10 @@
     "sendPath": "전송 경로 (아웃바운드 API)"
   },
   "chat": {
+    "calls": "calls",
+    "avg": "avg",
+    "thinkTime": "Think",
+    "otherTime": "Other",
     "total": "Total",
     "modelTime": "Model",
     "toolTime": "Tools",

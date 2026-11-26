@@ -405,6 +405,10 @@
     "sendPath": "消息发送路径（出站 API）"
   },
   "chat": {
+    "calls": "次调用",
+    "avg": "均",
+    "thinkTime": "思考",
+    "otherTime": "其他",
     "total": "总耗时",
     "modelTime": "模型",
     "toolTime": "工具",
