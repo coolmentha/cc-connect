@@ -1256,10 +1256,11 @@ func TestNewClaudeSession_NoReplayFlagKeepsProcessAlive(t *testing.T) {
 		[]string{"GO_WANT_HELPER_PROCESS=1"}, // extraEnv: route child into helper branch
 		"",                                   // platformPrompt
 		spawnOpts,
-		0,  // maxContextTokens
-		0,  // ctxWindowTokens
-		"", // ccDataDir (lets ensureSharedSystemPromptFile fall back to TempDir)
-		"", // lang
+		0,    // maxContextTokens
+		0,    // ctxWindowTokens
+		"",   // ccDataDir (lets ensureSharedSystemPromptFile fall back to TempDir)
+		"",   // lang
+		true, // textMessages
 	)
 	if err != nil {
 		t.Fatalf("newClaudeSession: %v", err)

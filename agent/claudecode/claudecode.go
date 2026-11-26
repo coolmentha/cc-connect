@@ -36,16 +36,20 @@ func init() {
 //   - "auto":              Claude's automatic permission classifier
 //   - "bypassPermissions": auto-approve everything (alias: yolo)
 type Agent struct {
-	workDir             string
-	cmd                 string   // CLI binary name (default: "claude")
-	cliExtraArgs        []string // extra args parsed from cmd (e.g. ["code", "-t", "foo"])
-	configEnv           []string // env vars from [projects.agent.options.env] — persists across SetSessionEnv calls
-	cmdArgsFlag         string   // if set, claude args are passed as a single string via this flag (e.g. "-a")
-	model               string
-	reasoningEffort     string // "low" | "medium" | "high" | "max"
-	mode                string // "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions" | "dontAsk"
-	allowedTools        []string
-	disallowedTools     []string
+	workDir         string
+	cmd             string   // CLI binary name (default: "claude")
+	cliExtraArgs    []string // extra args parsed from cmd (e.g. ["code", "-t", "foo"])
+	configEnv       []string // env vars from [projects.agent.options.env] — persists across SetSessionEnv calls
+	cmdArgsFlag     string   // if set, claude args are passed as a single string via this flag (e.g. "-a")
+	model           string
+	reasoningEffort string // "low" | "medium" | "high" | "max"
+	mode            string // "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions" | "dontAsk"
+	allowedTools    []string
+	disallowedTools []string
+	// textMessages controls whether intermediate assistant text blocks are
+	// emitted as EventText. false = only the final EventResult (result text)
+	// reaches the platform. Default true for backwards compatibility.
+	textMessages        bool
 	maxContextTokens    int // optional: passed as --max-context-tokens when > 0
 	contextWindowTokens int // optional: override the context-window-size heuristic used by the ctx% indicator. When <= 0, fall back to model-name heuristics.
 	toolResultMaxLen    int // maximum bytes sent for a tool result, including the truncation notice
@@ -196,6 +200,11 @@ func New(opts map[string]any) (core.Agent, error) {
 		}
 	}
 
+	textMessages := true
+	if v, ok := opts["text_messages"].(bool); ok {
+		textMessages = v
+	}
+
 	maxContextTokens := 0
 	switch v := opts["max_context_tokens"].(type) {
 	case int:
@@ -319,6 +328,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		pluginDirs:          pluginDirs,
 		allowedTools:        allowedTools,
 		disallowedTools:     disallowedTools,
+		textMessages:        textMessages,
 		maxContextTokens:    maxContextTokens,
 		contextWindowTokens: contextWindowTokens,
 		toolResultMaxLen:    toolResultMaxLen,
@@ -605,7 +615,7 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	lang := a.lang
 	a.mu.Unlock()
 
-	return newClaudeSession(ctx, workDir, a.cmd, a.cliExtraArgs, a.cmdArgsFlag, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt, tools, disTools, pluginDirs, extraEnv, platformPrompt, a.spawnOpts, maxTok, ctxWin, a.ccDataDir, lang, toolResultMaxLen)
+	return newClaudeSession(ctx, workDir, a.cmd, a.cliExtraArgs, a.cmdArgsFlag, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt, tools, disTools, pluginDirs, extraEnv, platformPrompt, a.spawnOpts, maxTok, ctxWin, a.ccDataDir, lang, a.textMessages, toolResultMaxLen)
 }
 
 func (a *Agent) ListSessions(ctx context.Context) ([]core.AgentSessionInfo, error) {
@@ -960,7 +970,8 @@ func (a *Agent) WorkspaceAgentOptions() map[string]any {
 	defer a.mu.RUnlock()
 
 	opts := map[string]any{
-		"mode": a.mode,
+		"mode":          a.mode,
+		"text_messages": a.textMessages,
 	}
 	if len(a.configEnv) > 0 {
 		envMap := make(map[string]string, len(a.configEnv))

@@ -38,6 +38,7 @@ type claudeSession struct {
 	acceptEditsOnly  atomic.Bool
 	dontAsk          atomic.Bool
 	workDir          string
+	textMessages     bool
 	ctx              context.Context
 	cancel           context.CancelFunc
 	done             chan struct{}
@@ -294,7 +295,7 @@ func buildAppendSystemPrompt(agentPrompt, platformPrompt, userAppend string) str
 	return strings.Join(parts, "\n")
 }
 
-func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs []string, cmdArgsFlag string, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt string, allowedTools, disallowedTools []string, pluginDirs []string, extraEnv []string, platformPrompt string, spawnOpts core.SpawnOptions, maxContextTokens int, ctxWindowTokens int, ccDataDir string, lang core.Language, toolResultMaxLen ...int) (*claudeSession, error) {
+func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs []string, cmdArgsFlag string, model, effort, sessionID, mode, systemPrompt, appendSystemPrompt string, allowedTools, disallowedTools []string, pluginDirs []string, extraEnv []string, platformPrompt string, spawnOpts core.SpawnOptions, maxContextTokens int, ctxWindowTokens int, ccDataDir string, lang core.Language, textMessages bool, toolResultMaxLen ...int) (*claudeSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	resultLimit := defaultToolResultMaxLen
 	if len(toolResultMaxLen) > 0 && toolResultMaxLen[0] > 0 {
@@ -574,6 +575,7 @@ func newClaudeSession(ctx context.Context, workDir, cliBin string, cliExtraArgs 
 		ctxWindowOverride:    ctxWindowTokens,
 		configuredEffort:     effort,
 		toolResultMaxLen:     resultLimit,
+		textMessages:         textMessages,
 	}
 	cs.setPermissionMode(mode)
 	cs.sessionID.Store(sessionID)
@@ -1175,11 +1177,13 @@ func (cs *claudeSession) handleAssistant(raw map[string]any) {
 				if text == "" {
 					continue
 				}
-				evt := core.Event{Type: core.EventText, Content: text}
-				select {
-				case cs.events <- evt:
-				case <-cs.ctx.Done():
-					return
+				if cs.textMessages {
+					evt := core.Event{Type: core.EventText, Content: text}
+					select {
+					case cs.events <- evt:
+					case <-cs.ctx.Done():
+						return
+					}
 				}
 			}
 		}
