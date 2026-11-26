@@ -405,6 +405,9 @@
     "sendPath": "Send path (outbound API)"
   },
   "chat": {
+    "execution": "Execution",
+    "steps": "{{count}} steps",
+    "toolCount": "{{count}} tools",
     "thinking": "Thinking",
     "tool": "Tool",
     "arguments": "Arguments",

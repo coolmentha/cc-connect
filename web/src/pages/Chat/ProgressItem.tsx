@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Brain, Terminal, FileText, FileSearch, Search, Globe, Wrench,
@@ -9,6 +9,13 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
 
+export interface ProgressResult {
+  content: string;
+  status?: string;
+  exitCode?: number;
+  success?: boolean;
+}
+
 export interface ProgressData {
   kind?: string;
   content: string;
@@ -18,6 +25,7 @@ export interface ProgressData {
   status?: string;
   exitCode?: number;
   success?: boolean;
+  result?: ProgressResult;
 }
 
 interface Parsed {
@@ -29,6 +37,7 @@ interface Parsed {
   status?: string;
   exitCode?: number;
   success?: boolean;
+  result?: ProgressResult;
 }
 
 function stripCodeFence(text: string): string {
@@ -118,24 +127,35 @@ function normalize(data: ProgressData): Parsed {
     status: data.status,
     exitCode: data.exitCode,
     success: data.success,
+    result: data.result,
   };
 }
 
-export default function ProgressItem({ data }: { data: ProgressData }) {
+export default function ProgressItem({ data, defaultOpen = false }: { data: ProgressData; defaultOpen?: boolean }) {
   const parsed = useMemo(() => normalize(data), [data]);
-  if (parsed.kind === 'tool') return <ToolItem p={parsed} />;
-  if (parsed.kind === 'tool_result') return <ResultItem p={parsed} />;
-  return <ThinkingItem p={parsed} />;
+  if (parsed.kind === 'tool') return <ToolItem p={parsed} defaultOpen={defaultOpen} />;
+  if (parsed.kind === 'tool_result') return <ResultItem p={parsed} defaultOpen={defaultOpen} />;
+  return <ThinkingItem p={parsed} defaultOpen={defaultOpen} />;
+}
+
+// useDefaultOpen opens a <details> initially while keeping it user-collapsible.
+function useDefaultOpen(defaultOpen?: boolean) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (defaultOpen && ref.current) ref.current.open = true;
+  }, [defaultOpen]);
+  return ref;
 }
 
 const SUMMARY_CLASS =
-  'flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden';
+  'flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden';
 
-function ThinkingItem({ p }: { p: Parsed }) {
+function ThinkingItem({ p, defaultOpen }: { p: Parsed; defaultOpen?: boolean }) {
   const { t } = useTranslation();
+  const ref = useDefaultOpen(defaultOpen);
   const preview = p.content.replace(/[#*`>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
   return (
-    <details className="group rounded-lg border border-gray-200/70 dark:border-white/[0.08] bg-gray-50/60 dark:bg-white/[0.02]">
+    <details ref={ref} className="group w-full rounded-lg border border-gray-200/70 dark:border-white/[0.08] bg-gray-50/60 dark:bg-white/[0.02]">
       <summary className={SUMMARY_CLASS}>
         <Brain size={14} className="text-gray-400 shrink-0" />
         <span className="text-xs font-medium text-gray-600 dark:text-gray-300 shrink-0">
@@ -145,7 +165,7 @@ function ThinkingItem({ p }: { p: Parsed }) {
         <ChevronRight size={13} className="text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
       </summary>
       <div className="border-t border-gray-200/60 dark:border-white/[0.06] px-3 py-2">
-        <div className="prose prose-sm max-w-none dark:prose-invert text-[13px] text-gray-600 dark:text-gray-300">
+        <div className="prose prose-sm max-w-none dark:prose-invert text-[13px] text-gray-600 dark:text-gray-300 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
           <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{p.content}</Markdown>
         </div>
       </div>
@@ -153,12 +173,37 @@ function ThinkingItem({ p }: { p: Parsed }) {
   );
 }
 
-function ToolItem({ p }: { p: Parsed }) {
+function ResultBody({ result }: { result: ProgressResult }) {
   const { t } = useTranslation();
+  const failed = result.success === false || (result.exitCode !== undefined && result.exitCode !== 0);
+  const Icon = failed ? XCircle : CheckCircle2;
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <Icon size={12} className={cn(failed ? 'text-red-500' : 'text-emerald-500', 'shrink-0')} />
+        <span className="text-[10px] uppercase tracking-wider text-gray-400">
+          {t('chat.result', 'Result')}
+        </span>
+        {result.exitCode !== undefined && (
+          <span className="text-[10px] text-gray-400">exit {result.exitCode}</span>
+        )}
+        {result.status && <span className="text-[10px] text-gray-400 truncate">{result.status}</span>}
+        <span className="ml-auto" />
+        <CopyButton text={result.content} />
+      </div>
+      <pre className="max-h-64 overflow-auto rounded-md bg-gray-50 dark:bg-black/30 border border-gray-200/60 dark:border-white/[0.06] p-2 text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-words">{result.content}</pre>
+    </div>
+  );
+}
+
+function ToolItem({ p, defaultOpen }: { p: Parsed; defaultOpen?: boolean }) {
+  const { t } = useTranslation();
+  const ref = useDefaultOpen(defaultOpen);
   const Icon = toolIcon(p.toolName);
   const input = parseInput(p.toolInput);
+  const resultFailed = p.result ? (p.result.success === false || (p.result.exitCode !== undefined && p.result.exitCode !== 0)) : false;
   return (
-    <details className="group rounded-lg border border-gray-200/80 dark:border-white/[0.08] bg-white/70 dark:bg-white/[0.03] overflow-hidden">
+    <details ref={ref} className="group w-full rounded-lg border border-gray-200/80 dark:border-white/[0.08] bg-white/70 dark:bg-white/[0.03] overflow-hidden">
       <summary className={SUMMARY_CLASS}>
         <span className="w-5 h-5 rounded-md bg-accent/10 flex items-center justify-center shrink-0">
           <Icon size={12} className="text-accent" />
@@ -174,37 +219,46 @@ function ToolItem({ p }: { p: Parsed }) {
         ) : (
           <span className="flex-1" />
         )}
+        {p.result && (
+          resultFailed
+            ? <XCircle size={13} className="text-red-500 shrink-0" />
+            : <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+        )}
+        {p.result?.exitCode !== undefined && (
+          <span className="text-[10px] text-gray-400 shrink-0">{p.result.exitCode}</span>
+        )}
         <ChevronRight size={13} className="text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
       </summary>
-      <div className="border-t border-gray-200/60 dark:border-white/[0.06] px-3 py-2">
+      <div className="border-t border-gray-200/60 dark:border-white/[0.06] px-3 py-2 space-y-3">
         {input.pretty ? (
-          <>
+          <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px] uppercase tracking-wider text-gray-400">
                 {t('chat.arguments', 'Arguments')}
               </span>
               <CopyButton text={input.pretty} />
             </div>
-            <pre className="max-h-72 overflow-auto rounded-md bg-gray-50 dark:bg-black/30 border border-gray-200/60 dark:border-white/[0.06] p-2 text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-words">
-              {input.pretty}
-            </pre>
-          </>
+            <pre className="max-h-72 overflow-auto rounded-md bg-gray-50 dark:bg-black/30 border border-gray-200/60 dark:border-white/[0.06] p-2 text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-words">{input.pretty}</pre>
+          </div>
         ) : (
           <p className="text-xs text-gray-400">{t('chat.noArguments', 'No arguments')}</p>
         )}
+        {p.result && <ResultBody result={p.result} />}
       </div>
     </details>
   );
 }
 
-function ResultItem({ p }: { p: Parsed }) {
+function ResultItem({ p, defaultOpen }: { p: Parsed; defaultOpen?: boolean }) {
   const { t } = useTranslation();
+  const ref = useDefaultOpen(defaultOpen);
   const failed = p.success === false || (p.exitCode !== undefined && p.exitCode !== 0);
   const Icon = failed ? XCircle : CheckCircle2;
   return (
     <details
+      ref={ref}
       className={cn(
-        'group ml-6 rounded-lg border-l-2 bg-gray-50/50 dark:bg-white/[0.02]',
+        'group w-full rounded-lg border-l-2 bg-gray-50/50 dark:bg-white/[0.02]',
         failed ? 'border-l-red-400/70' : 'border-l-emerald-400/70',
         'border-y border-r border-gray-200/60 dark:border-white/[0.06]',
       )}
@@ -222,9 +276,7 @@ function ResultItem({ p }: { p: Parsed }) {
         {p.content ? (
           <>
             <div className="flex justify-end mb-1"><CopyButton text={p.content} /></div>
-            <pre className="max-h-72 overflow-auto rounded-md bg-gray-50 dark:bg-black/30 border border-gray-200/60 dark:border-white/[0.06] p-2 text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-words">
-              {p.content}
-            </pre>
+            <pre className="max-h-72 overflow-auto rounded-md bg-gray-50 dark:bg-black/30 border border-gray-200/60 dark:border-white/[0.06] p-2 text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-words">{p.content}</pre>
           </>
         ) : (
           <p className="text-xs text-gray-400">{t('chat.emptyResult', 'No output')}</p>

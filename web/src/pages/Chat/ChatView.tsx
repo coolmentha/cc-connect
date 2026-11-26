@@ -4,7 +4,8 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Send, User, Bot, Circle, WifiOff,
   Copy, Check, FileText, Image as ImageIcon, Loader2,
-  Slash, ChevronDown, Paperclip, X, Download, Music, Video,
+  Slash, ChevronDown, ChevronRight, Paperclip, X, Download, Music, Video,
+  Activity, XCircle,
 } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
 import { listSessions, getSession, deleteSession, renameSession, type Session, type SessionDetail } from '@/api/sessions';
@@ -121,6 +122,43 @@ interface ChatMsg {
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
+// ProgressGroup collapses a whole run of thinking/tool steps into one block.
+// It is closed by default; opening it reveals every step at once.
+function ProgressGroup({ items }: { items: ChatMsg[] }) {
+  const { t } = useTranslation();
+  const toolCount = items.filter((m) => m.progress?.kind === 'tool').length;
+  const failed = items.some((m) => m.progress?.result?.success === false ||
+    (m.progress?.result?.exitCode !== undefined && m.progress.result.exitCode !== 0));
+  return (
+    <div className="flex gap-3 justify-start">
+      <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
+        <Bot size={16} className="text-accent" />
+      </div>
+      <details className="group w-full max-w-[85%] rounded-xl border border-gray-200/80 dark:border-white/[0.08] bg-gray-50/60 dark:bg-white/[0.02]">
+        <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+          <Activity size={14} className="text-gray-400 shrink-0" />
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+            {t('chat.execution', 'Execution')}
+          </span>
+          <span className="text-[11px] text-gray-400">{t('chat.steps', { count: items.length })}</span>
+          {toolCount > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+              {t('chat.toolCount', { count: toolCount })}
+            </span>
+          )}
+          {failed && <XCircle size={12} className="text-red-500 shrink-0" />}
+          <ChevronRight size={13} className="ml-auto text-gray-400 group-open:rotate-90 transition-transform shrink-0" />
+        </summary>
+        <div className="border-t border-gray-200/60 dark:border-white/[0.06] p-2 space-y-2">
+          {items.map((m) => (
+            <ProgressItem key={m.id} data={m.progress || { content: m.content }} defaultOpen />
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 // findReplyTarget locates the streaming answer message. Progress messages are
 // deliberately excluded so a final reply can never overwrite reasoning output.
 function findReplyTarget(list: ChatMsg[], handle?: string): number {
@@ -131,10 +169,56 @@ function findReplyTarget(list: ChatMsg[], handle?: string): number {
   return list.findIndex((m) => m.streaming && m.kind !== 'progress');
 }
 
+// findToolForResult locates the tool card that a tool_result belongs to, so the
+// result can be nested inside it (Codex-style) instead of becoming a separate
+// misaligned message.
+function findToolForResult(list: ChatMsg[], toolIndex?: number): number {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (m.kind !== 'progress' || m.progress?.kind !== 'tool') continue;
+    if (m.progress.result) continue;
+    if (toolIndex && m.progress.toolIndex && toolIndex !== m.progress.toolIndex) continue;
+    return i;
+  }
+  return -1;
+}
+
+function mergeProgress(list: ChatMsg[], data: ProgressData, id: string, timestamp?: string): ChatMsg[] {
+  if (data.kind === 'tool_result') {
+    const idx = findToolForResult(list, data.toolIndex);
+    if (idx >= 0) {
+      const updated = [...list];
+      const target = updated[idx];
+      updated[idx] = {
+        ...target,
+        progress: {
+          ...(target.progress || { content: '' }),
+          result: {
+            content: data.content,
+            status: data.status,
+            exitCode: data.exitCode,
+            success: data.success,
+          },
+        },
+      };
+      return updated;
+    }
+  }
+  return [...list, {
+    id,
+    role: 'assistant',
+    kind: 'progress',
+    content: data.content,
+    format: 'markdown',
+    timestamp,
+    progress: data,
+  }];
+}
+
 // detailToMessages merges persisted conversation turns with persisted
 // thinking/tool progress, ordered by timestamp.
 function detailToMessages(detail: SessionDetail): ChatMsg[] {
-  const out: ChatMsg[] = [];
+  let out: ChatMsg[] = [];
   (detail.history || []).forEach((h, i) => {
     out.push({
       id: `hist-${i}`,
@@ -146,24 +230,17 @@ function detailToMessages(detail: SessionDetail): ChatMsg[] {
     });
   });
   (detail.progress || []).forEach((p, i) => {
-    out.push({
-      id: `progress-hist-${i}`,
-      role: 'assistant',
-      kind: 'progress',
+    const data: ProgressData = {
+      kind: p.kind,
       content: p.content,
-      format: 'markdown',
-      timestamp: p.timestamp,
-      progress: {
-        kind: p.kind,
-        content: p.content,
-        toolName: p.tool_name,
-        toolInput: p.tool_input,
-        toolIndex: p.tool_index,
-        status: p.status,
-        exitCode: p.exit_code,
-        success: p.success,
-      },
-    });
+      toolName: p.tool_name,
+      toolInput: p.tool_input,
+      toolIndex: p.tool_index,
+      status: p.status,
+      exitCode: p.exit_code,
+      success: p.success,
+    };
+    out = mergeProgress(out, data, `progress-hist-${i}`, p.timestamp);
   });
   out.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
   return out;
@@ -543,23 +620,17 @@ export default function ChatView() {
     } else if (msg.type === 'progress') {
       const progress = msg as Extract<BridgeIncoming, { type: 'progress' }>;
       if (progress.content) {
-        setMessages(prev => [...prev, {
-          id: `progress-${Date.now()}-${prev.length}`,
-          role: 'assistant',
-          kind: 'progress',
+        const data: ProgressData = {
+          kind: progress.kind,
           content: progress.content,
-          format: 'markdown',
-          progress: {
-            kind: progress.kind,
-            content: progress.content,
-            toolName: progress.tool_name,
-            toolInput: progress.tool_input,
-            toolIndex: progress.tool_index,
-            status: progress.status,
-            exitCode: progress.exit_code,
-            success: progress.success,
-          },
-        }]);
+          toolName: progress.tool_name,
+          toolInput: progress.tool_input,
+          toolIndex: progress.tool_index,
+          status: progress.status,
+          exitCode: progress.exit_code,
+          success: progress.success,
+        };
+        setMessages(prev => mergeProgress(prev, data, `progress-${Date.now()}-${prev.length}`));
       }
       setTyping(false);
     } else if (msg.type === 'image' || msg.type === 'file' || msg.type === 'audio' || msg.type === 'video') {
@@ -802,7 +873,7 @@ export default function ChatView() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto py-6 space-y-5">
+      <div className="flex-1 overflow-y-auto py-6 space-y-3">
         {messages.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
             <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
@@ -812,7 +883,15 @@ export default function ChatView() {
             <p className="text-xs text-gray-400 dark:text-gray-500">{t('chat.slashHint')}</p>
           </div>
         )}
-        {messages.map((msg) => {
+        {messages.map((msg, idx) => {
+          if (msg.kind === 'progress') {
+            if (idx > 0 && messages[idx - 1].kind === 'progress') return null;
+            const items: ChatMsg[] = [];
+            for (let i = idx; i < messages.length && messages[i].kind === 'progress'; i++) {
+              items.push(messages[i]);
+            }
+            return <ProgressGroup key={`pg-${msg.id}`} items={items} />;
+          }
           const isUser = msg.role === 'user';
           const isEmpty = !msg.content && !msg.card && !msg.buttons && !msg.imageUrl && !msg.fileName && !msg.mediaUrl && !(msg.attachments?.length);
           return (
@@ -824,20 +903,14 @@ export default function ChatView() {
               )}
               <div className={cn(
                 'group/msg relative rounded-2xl text-sm',
-                msg.kind === 'progress'
-                  ? 'max-w-[85%]'
-                  : cn(
-                    'px-5 py-3.5',
-                    isUser
-                      ? 'max-w-[70%] bg-accent text-black rounded-br-md'
-                      : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm',
-                  ),
+                'px-5 py-3.5',
+                isUser
+                  ? 'max-w-[70%] bg-accent text-black rounded-br-md'
+                  : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm',
                 msg.streaming && 'animate-pulse-subtle',
               )}>
                 {isEmpty ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500 italic">{t('chat.unsupportedMessage', '[Unsupported message]')}</p>
-                ) : msg.kind === 'progress' ? (
-                  <ProgressItem data={msg.progress || { content: msg.content }} />
                 ) : msg.kind === 'media' ? (
                   <MediaBlock msg={msg} />
                 ) : msg.format === 'card' ? (
@@ -868,7 +941,7 @@ export default function ChatView() {
                 {msg.streaming && (
                   <span className="inline-block w-1.5 h-4 bg-accent/60 rounded-sm ml-0.5 animate-pulse" />
                 )}
-                {!isUser && !msg.streaming && msg.content && msg.kind !== 'progress' && (
+                {!isUser && !msg.streaming && msg.content && (
                   <MsgCopyButton text={msg.content} />
                 )}
               </div>

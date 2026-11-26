@@ -405,6 +405,9 @@
     "sendPath": "送信 API パス"
   },
   "chat": {
+    "execution": "Execution",
+    "steps": "{{count}} steps",
+    "toolCount": "{{count}} tools",
     "thinking": "Thinking",
     "tool": "Tool",
     "arguments": "Arguments",

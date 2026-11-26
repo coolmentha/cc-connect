@@ -405,6 +405,9 @@
     "sendPath": "전송 경로 (아웃바운드 API)"
   },
   "chat": {
+    "execution": "Execution",
+    "steps": "{{count}} steps",
+    "toolCount": "{{count}} tools",
     "thinking": "Thinking",
     "tool": "Tool",
     "arguments": "Arguments",

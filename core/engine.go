@@ -6487,12 +6487,13 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			if result != "" || event.ToolStatus != "" || event.ToolExitCode != nil || event.ToolSuccess != nil {
 				resultMsg := e.formatToolResultEventFallback(event.ToolName, result, event.ToolStatus, event.ToolExitCode, event.ToolSuccess)
 				resultEV = ProgressEvent{
-					Kind:     "tool_result",
-					Content:  resultMsg,
-					ToolName: event.ToolName,
-					Status:   event.ToolStatus,
-					ExitCode: event.ToolExitCode,
-					Success:  event.ToolSuccess,
+					Kind:      "tool_result",
+					Content:   resultMsg,
+					ToolName:  event.ToolName,
+					ToolIndex: toolCount,
+					Status:    event.ToolStatus,
+					ExitCode:  event.ToolExitCode,
+					Success:   event.ToolSuccess,
 				}
 				session.AddProgressEntry(resultEV)
 			}

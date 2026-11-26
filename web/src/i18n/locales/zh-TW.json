@@ -405,6 +405,9 @@
     "sendPath": "訊息發送路徑（出站 API）"
   },
   "chat": {
+    "execution": "执行过程",
+    "steps": "{{count}} 步",
+    "toolCount": "{{count}} 个工具",
     "thinking": "思考",
     "tool": "工具",
     "arguments": "参数",
