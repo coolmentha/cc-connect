@@ -258,7 +258,7 @@ func main() {
 		}
 		logWriter = w
 		logCloser = w
-		slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
+		setupLogger("info", w)
 	}
 
 	rootOpts, err := parseRootCLIOptions(os.Args[1:])
@@ -1202,6 +1202,8 @@ func main() {
 			return config.AddPlatformToProject(projectName, config.PlatformConfig{Type: platType, Options: opts}, workDir, agentType)
 		})
 		mgmtSrv.SetRemoveProject(config.RemoveProject)
+		mgmtSrv.SetRemovePlatformFromProject(config.RemovePlatformFromProject)
+		mgmtSrv.SetUpdatePlatformInProject(config.UpdatePlatformInProject)
 		mgmtSrv.SetSaveProjectSettings(func(name string, u core.ProjectSettingsUpdate) error {
 			return config.SaveProjectSettings(name, config.ProjectSettingsUpdate{
 				Language:             u.Language,
@@ -1811,9 +1813,15 @@ func setupLogger(level string, w io.Writer) {
 	if w == nil {
 		w = os.Stdout
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
+	buf := core.DefaultLogBuffer()
+	if buf == nil {
+		buf = core.NewLogBuffer(1000)
+		core.SetDefaultLogBuffer(buf)
+	}
+	handler := slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level: logLevel,
-	})))
+	})
+	slog.SetDefault(slog.New(buf.Wrap(handler)))
 }
 
 func applyDedupConfig(cfg *config.Config, engine *core.Engine) {

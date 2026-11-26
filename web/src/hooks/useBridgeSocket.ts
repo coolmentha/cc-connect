@@ -5,8 +5,13 @@ export type BridgeIncoming =
   | { type: 'register_ack'; ok: boolean; error?: string }
   | { type: 'reply'; session_key: string; reply_ctx: string; content: string; format?: string }
   | { type: 'reply_stream'; session_key: string; reply_ctx: string; delta: string; full_text: string; preview_handle?: string; done: boolean }
+  | { type: 'progress'; session_key: string; reply_ctx: string; content: string; format?: string }
   | { type: 'card'; session_key: string; reply_ctx: string; card: any }
   | { type: 'buttons'; session_key: string; reply_ctx: string; content: string; buttons: { text: string; data: string }[][] }
+  | { type: 'image'; session_key: string; reply_ctx: string; data: string; mime_type?: string; file_name?: string }
+  | { type: 'file'; session_key: string; reply_ctx: string; data: string; mime_type?: string; file_name?: string }
+  | { type: 'audio'; session_key: string; reply_ctx: string; data: string; format?: string; mime_type?: string }
+  | { type: 'video'; session_key: string; reply_ctx: string; data: string; format?: string; mime_type?: string; file_name?: string }
   | { type: 'typing_start'; session_key: string }
   | { type: 'typing_stop'; session_key: string }
   | { type: 'preview_start'; ref_id: string; session_key: string; reply_ctx: string; content: string }
@@ -15,6 +20,14 @@ export type BridgeIncoming =
   | { type: 'error'; code: string; message: string }
   | { type: 'pong'; ts: number }
   | { type: string; [key: string]: any };
+
+export interface OutgoingAttachment {
+  kind: 'image' | 'file';
+  mimeType: string;
+  fileName: string;
+  /** base64 without the data: prefix */
+  data: string;
+}
 
 export interface BridgeConfig {
   port: number;
@@ -35,10 +48,12 @@ export interface UseBridgeSocketOptions {
   platformName?: string;
   sessionKey: string;
   projectName?: string;
+  userId?: string;
+  userName?: string;
   onMessage: (msg: BridgeIncoming) => void;
 }
 
-export function useBridgeSocket({ bridgeCfg, platformName = 'web', sessionKey, projectName, onMessage }: UseBridgeSocketOptions) {
+export function useBridgeSocket({ bridgeCfg, platformName = 'web', sessionKey, projectName, userId = 'web-admin', userName = 'Web Admin', onMessage }: UseBridgeSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
@@ -51,18 +66,26 @@ export function useBridgeSocket({ bridgeCfg, platformName = 'web', sessionKey, p
     }
   }, []);
 
-  const sendMessage = useCallback((content: string) => {
+  const sendMessage = useCallback((content: string, attachments?: OutgoingAttachment[]) => {
+    const images = (attachments || [])
+      .filter((a) => a.kind === 'image')
+      .map((a) => ({ mime_type: a.mimeType, data: a.data, file_name: a.fileName }));
+    const files = (attachments || [])
+      .filter((a) => a.kind === 'file')
+      .map((a) => ({ mime_type: a.mimeType, data: a.data, file_name: a.fileName }));
     send({
       type: 'message',
       msg_id: `web-${Date.now()}`,
       session_key: sessionKey,
-      user_id: 'web-admin',
-      user_name: 'Web Admin',
+      user_id: userId,
+      user_name: userName,
       content,
       reply_ctx: sessionKey,
       project: projectName || '',
+      ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files } : {}),
     });
-  }, [send, sessionKey, projectName]);
+  }, [send, sessionKey, projectName, userId, userName]);
 
   const sendCardAction = useCallback((action: string) => {
     send({
@@ -101,8 +124,14 @@ export function useBridgeSocket({ bridgeCfg, platformName = 'web', sessionKey, p
         ws.send(JSON.stringify({
           type: 'register',
           platform: platformName,
-          capabilities: ['text', 'card', 'buttons', 'typing', 'update_message', 'preview', 'reconstruct_reply'],
-          metadata: { version: '1.0.0', description: 'Web Admin Dashboard' },
+          capabilities: ['text', 'card', 'buttons', 'typing', 'update_message', 'preview', 'reconstruct_reply', 'progress', 'image', 'file', 'audio', 'video'],
+          metadata: {
+            version: '1.0.0',
+            description: 'Web Admin Dashboard',
+            // Keep thinking/tool events as standalone messages instead of a
+            // single rewritten progress card, so they survive the final reply.
+            progress_style: 'legacy',
+          },
         }));
       };
 
@@ -161,11 +190,20 @@ export async function fetchBridgeConfig(): Promise<BridgeConfigResult> {
     if (!status.bridge.listening) {
       return { config: null, unavailable: 'start-failed', detail: status.bridge.last_error || '' };
     }
+    // Prefer a short-lived ticket so the long-lived bridge token is not placed
+    // in the WebSocket URL (and therefore in access logs).
+    let token = status.bridge.token || '';
+    try {
+      const ticket = await api.get<{ token: string }>('/bridge/ticket');
+      if (ticket?.token) token = ticket.token;
+    } catch {
+      // Older servers may not expose /bridge/ticket; fall back to the token.
+    }
     return {
       config: {
         port: status.bridge.port,
         path: status.bridge.path,
-        token: status.bridge.token,
+        token,
       },
     };
   } catch {

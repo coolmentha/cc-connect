@@ -243,6 +243,26 @@ token = "your-secret"     # 认证密钥，必填
 | `content` | string | 是 | 回复文本内容。 |
 | `format` | string | 否 | `"text"`（默认）或 `"markdown"`。 |
 
+#### `progress`
+
+中间过程消息（思考、工具调用、工具结果）。仅当适配器声明了 `"progress"` 能力时发送。
+progress 消息是**附加**的：适配器应与最终 `reply` 一起展示，而不是用最终答案覆盖它。
+
+```json
+{
+  "type": "progress",
+  "session_key": "web:client:project",
+  "reply_ctx": "conv-abc-123",
+  "content": "💭 **Thinking**\n\n...",
+  "format": "markdown"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | string | 过程文本（思考、工具调用或工具结果）。 |
+| `format` | string | `"markdown"`（默认）或 `"text"`。 |
+
 #### `reply_stream`
 
 流式增量内容，用于实时打字预览。仅在适配器声明了 `"preview"` 能力时发送。
@@ -477,6 +497,7 @@ token = "your-secret"     # 认证密钥，必填
 | `typing` | 正在输入指示器 | `typing_start`、`typing_stop` |
 | `update_message` | 编辑已有消息 | `update_message` |
 | `preview` | 流式预览（需要 `update_message`） | `preview_start`、`reply_stream` |
+| `progress` | 接收中间思考/工具消息 | `progress` |
 | `delete_message` | 删除消息 | `delete_message` |
 | `reconstruct_reply` | 可从 session_key 重建回复上下文 | 启用定时任务/心跳消息 |
 

@@ -3845,6 +3845,95 @@ func AddPlatformToProject(projectName string, platform PlatformConfig, workDir, 
 	})
 }
 
+// RemovePlatformFromProject removes the first platform of platformType from a
+// project, preserving the rest of the config document.
+func RemovePlatformFromProject(projectName, platformType string) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	data, cfg, err := loadDocumentConfigLocked()
+	if err != nil {
+		return err
+	}
+	for i := range cfg.Projects {
+		if cfg.Projects[i].Name != projectName {
+			continue
+		}
+		for j := range cfg.Projects[i].Platforms {
+			if cfg.Projects[i].Platforms[j].Type != platformType {
+				continue
+			}
+			cfg.Projects[i].Platforms = append(cfg.Projects[i].Platforms[:j], cfg.Projects[i].Platforms[j+1:]...)
+			if len(cfg.Projects[i].Platforms) == 0 {
+				cfg.Projects[i].Platforms = nil
+			}
+			return saveDocumentPatch(data, cfg, func(raw string) (string, error) {
+				return removePlatformBlock(raw, i, j)
+			})
+		}
+		return fmt.Errorf("platform %q not found in project %q", platformType, projectName)
+	}
+	return fmt.Errorf("project %q not found", projectName)
+}
+
+// UpdatePlatformInProject replaces the options of the first platform of
+// platformType. It removes and re-inserts the platform block so comments inside
+// that block are intentionally dropped; the rest of the document is preserved.
+func UpdatePlatformInProject(projectName, platformType string, options map[string]any) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	data, cfg, err := loadDocumentConfigLocked()
+	if err != nil {
+		return err
+	}
+	if len(options) == 0 {
+		options = nil
+	}
+	for i := range cfg.Projects {
+		if cfg.Projects[i].Name != projectName {
+			continue
+		}
+		for j := range cfg.Projects[i].Platforms {
+			if cfg.Projects[i].Platforms[j].Type != platformType {
+				continue
+			}
+			// Merge rather than replace so fields the web form leaves blank
+			// (notably secrets that are never returned by the API) survive.
+			merged := make(map[string]any, len(cfg.Projects[i].Platforms[j].Options)+len(options))
+			for k, v := range cfg.Projects[i].Platforms[j].Options {
+				merged[k] = v
+			}
+			for k, v := range options {
+				merged[k] = v
+			}
+			if len(merged) == 0 {
+				merged = nil
+			}
+			cfg.Projects[i].Platforms[j].Options = merged
+			block, err := serializePlatformBlock(cfg.Projects[i].Platforms[j])
+			if err != nil {
+				return err
+			}
+			return saveDocumentPatch(data, cfg, func(raw string) (string, error) {
+				stripped, err := removePlatformBlock(raw, i, j)
+				if err != nil {
+					return "", err
+				}
+				_, tables, err := scanConfigDocument(stripped)
+				if err != nil {
+					return "", err
+				}
+				_, end, err := projectDocumentSpan(tables, len(stripped), i)
+				if err != nil {
+					return "", err
+				}
+				return insertDocument(stripped, end, documentNewline(stripped)+projectBlockNewlines(stripped, block)), nil
+			})
+		}
+		return fmt.Errorf("platform %q not found in project %q", platformType, projectName)
+	}
+	return fmt.Errorf("project %q not found", projectName)
+}
+
 func writeRawConfig(content string) error {
 	content = formatTOML(content)
 	dir := filepath.Dir(ConfigPath)

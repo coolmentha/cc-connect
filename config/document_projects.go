@@ -89,3 +89,37 @@ func insertPlatformBlock(raw string, project int, block string) (string, error) 
 	}
 	return insertDocument(raw, end, documentNewline(raw)+projectBlockNewlines(raw, block)), nil
 }
+
+// platformDocumentSpan locates one [[projects.platforms]] block (including its
+// nested tables) inside a project.
+func platformDocumentSpan(tables []documentTable, total, project, platform int) (int, int, error) {
+	start := -1
+	for _, table := range tables {
+		if table.project == project && table.platform == platform {
+			if start < 0 || table.start < start {
+				start = table.start
+			}
+		}
+	}
+	if start < 0 {
+		return 0, 0, fmt.Errorf("cannot locate project %d platform %d", project, platform)
+	}
+	for _, table := range tables {
+		if table.start > start && !(table.project == project && table.platform == platform) {
+			return start, table.start, nil
+		}
+	}
+	return start, total, nil
+}
+
+func removePlatformBlock(raw string, project, platform int) (string, error) {
+	_, tables, err := scanConfigDocument(raw)
+	if err != nil {
+		return "", err
+	}
+	start, end, err := platformDocumentSpan(tables, len(raw), project, platform)
+	if err != nil {
+		return "", err
+	}
+	return raw[:start] + raw[end:], nil
+}

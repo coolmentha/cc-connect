@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import {
-  X, MessageSquare, Circle, User, Bot, Plus,
+  X, MessageSquare, Circle, User, Bot, Plus, Pencil, Trash2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import type { Session } from '@/api/sessions';
@@ -24,9 +24,11 @@ interface Props {
   currentSessionId: string;
   onSelect: (session: Session) => void;
   onNewSession?: () => void;
+  onRename?: (session: Session) => void;
+  onDelete?: (session: Session) => void;
 }
 
-export default function SessionDrawer({ open, onClose, sessions, currentSessionId, onSelect, onNewSession }: Props) {
+export default function SessionDrawer({ open, onClose, sessions, currentSessionId, onSelect, onNewSession, onRename, onDelete }: Props) {
   const { t } = useTranslation();
 
   return (
@@ -77,12 +79,19 @@ export default function SessionDrawer({ open, onClose, sessions, currentSessionI
             sessions.map((s) => {
               const isCurrent = s.id === currentSessionId;
               return (
-                <button
+                <div
                   key={s.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onSelect(s)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onSelect(s);
+                    }
+                  }}
                   className={cn(
-                    'w-full text-left p-3 rounded-xl mb-1 transition-all duration-200',
+                    'group w-full text-left p-3 rounded-xl mb-1 transition-all duration-200 cursor-pointer',
                     isCurrent
                       ? 'bg-accent/10 ring-1 ring-accent/30'
                       : 'hover:bg-gray-100/80 dark:hover:bg-white/[0.04]',
@@ -118,8 +127,28 @@ export default function SessionDrawer({ open, onClose, sessions, currentSessionI
                   <div className="flex items-center gap-1.5 pl-5">
                     {s.platform && <Badge variant="info" className="text-[9px] px-1 py-0">{s.platform}</Badge>}
                     <span className="text-[10px] text-gray-400 ml-auto">{s.history_count} msgs</span>
+                    {onRename && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onRename(s); }}
+                        className="p-1 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-accent transition-opacity"
+                        title={t('common.rename')}
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDelete(s); }}
+                        className="p-1 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
+                        title={t('common.delete')}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
-                </button>
+                </div>
               );
             })
           )}

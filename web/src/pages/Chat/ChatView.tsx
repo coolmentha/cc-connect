@@ -1,17 +1,19 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Send, User, Bot, Circle, WifiOff,
   Copy, Check, FileText, Image as ImageIcon, Loader2,
-  Slash, ChevronDown,
+  Slash, ChevronDown, Paperclip, X, Download, Music, Video,
 } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
-import { listSessions, getSession, type Session, type SessionDetail } from '@/api/sessions';
+import { listSessions, getSession, deleteSession, renameSession, type Session, type SessionDetail } from '@/api/sessions';
 import {
   useBridgeSocket, fetchBridgeConfig,
-  type BridgeConfigResult, type BridgeIncoming, type BridgeStatus,
+  type BridgeConfigResult, type BridgeIncoming, type BridgeStatus, type OutgoingAttachment,
 } from '@/hooks/useBridgeSocket';
+import { webSessionKey as makeWebSessionKey, webUserId, webUserName, webPlatformName } from '@/lib/webIdentity';
+import { notify } from '@/lib/notify';
 import CommandPalette, { type SlashCommand, slashCommands } from './CommandPalette';
 import SessionDrawer from './SessionDrawer';
 import CommandResultPanel, { type CommandResult } from './CommandResultPanel';
@@ -97,7 +99,7 @@ interface ChatMsg {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  format?: 'text' | 'markdown' | 'card' | 'buttons' | 'image' | 'file';
+  format?: 'text' | 'markdown' | 'card' | 'buttons' | 'image' | 'file' | 'audio' | 'video';
   card?: any;
   buttons?: { text: string; data: string }[][];
   imageUrl?: string;
@@ -105,6 +107,54 @@ interface ChatMsg {
   fileSize?: number;
   streaming?: boolean;
   timestamp?: string;
+  // 'progress' = intermediate thinking/tool output, rendered in a dimmed block
+  // and never overwritten by the final reply.
+  kind?: 'message' | 'progress' | 'media';
+  mediaKind?: 'image' | 'file' | 'audio' | 'video';
+  mediaUrl?: string;
+  mimeType?: string;
+  previewHandle?: string;
+  attachments?: { name: string; kind: 'image' | 'file' }[];
+}
+
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+// findReplyTarget locates the streaming answer message. Progress messages are
+// deliberately excluded so a final reply can never overwrite reasoning output.
+function findReplyTarget(list: ChatMsg[], handle?: string): number {
+  if (handle) {
+    const byHandle = list.findIndex((m) => m.previewHandle === handle);
+    if (byHandle >= 0) return byHandle;
+  }
+  return list.findIndex((m) => m.streaming && m.kind !== 'progress');
+}
+
+// detailToMessages merges persisted conversation turns with persisted
+// thinking/tool progress, ordered by timestamp.
+function detailToMessages(detail: SessionDetail): ChatMsg[] {
+  const out: ChatMsg[] = [];
+  (detail.history || []).forEach((h, i) => {
+    out.push({
+      id: `hist-${i}`,
+      role: h.role === 'user' ? 'user' : 'assistant',
+      content: h.content,
+      format: 'markdown',
+      timestamp: h.timestamp,
+      kind: 'message',
+    });
+  });
+  (detail.progress || []).forEach((p, i) => {
+    out.push({
+      id: `progress-hist-${i}`,
+      role: 'assistant',
+      kind: 'progress',
+      content: p.content,
+      format: 'markdown',
+      timestamp: p.timestamp,
+    });
+  });
+  out.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  return out;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -228,20 +278,60 @@ function ButtonsBlock({ content, buttons, onAction }: { content: string; buttons
   );
 }
 
-function FileBlock({ name, size }: { name: string; size?: number }) {
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+function formatBytes(size?: number) {
+  if (size === undefined || size < 0) return '';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FileBlock({ name, size, url }: { name: string; size?: number; url?: string }) {
+  const body = (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 min-w-0">
       <FileText size={16} className="text-gray-400 shrink-0" />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{name}</div>
-        {size !== undefined && <div className="text-xs text-gray-400">{(size / 1024).toFixed(1)} KB</div>}
+        {size !== undefined && <div className="text-xs text-gray-400">{formatBytes(size)}</div>}
       </div>
+      {url && <Download size={14} className="text-gray-400 shrink-0" />}
     </div>
+  );
+  if (!url) return body;
+  return (
+    <a href={url} download={name} className="inline-block max-w-full hover:opacity-80 transition-opacity">
+      {body}
+    </a>
   );
 }
 
 function ImageBlock({ url }: { url: string }) {
   return <img src={url} alt="" className="max-w-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm" />;
+}
+
+function AudioBlock({ url }: { url: string }) {
+  return <audio controls src={url} className="w-full max-w-sm" />;
+}
+
+function VideoBlock({ url }: { url: string }) {
+  return <video controls src={url} className="max-w-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm" />;
+}
+
+function MediaBlock({ msg }: { msg: ChatMsg }) {
+  if (!msg.mediaUrl) return null;
+  if (msg.mediaKind === 'image') return <ImageBlock url={msg.mediaUrl} />;
+  if (msg.mediaKind === 'audio') return <AudioBlock url={msg.mediaUrl} />;
+  if (msg.mediaKind === 'video') return <VideoBlock url={msg.mediaUrl} />;
+  return <FileBlock name={msg.fileName || 'file'} size={msg.fileSize} url={msg.mediaUrl} />;
+}
+
+// ProgressBlock renders intermediate thinking / tool output. It stays visible
+// after the final answer arrives, so the reasoning process is not lost.
+function ProgressBlock({ content }: { content: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-gray-300/80 dark:border-gray-700/80 bg-gray-50/70 dark:bg-white/[0.02] px-4 py-3 text-[13px] text-gray-600 dark:text-gray-300">
+      <RenderMarkdown content={content} />
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: BridgeStatus }) {
@@ -290,6 +380,8 @@ function MsgCopyButton({ text }: { text: string }) {
 export default function ChatView() {
   const { t } = useTranslation();
   const { name: projectName } = useParams<{ name: string }>();
+  const [searchParams] = useSearchParams();
+  const targetSessionId = searchParams.get('session') || '';
 
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -312,15 +404,19 @@ export default function ChatView() {
   const messagesEnd = useRef<HTMLDivElement>(null);
   const previewHandleCounter = useRef(0);
   const cmdBtnRef = useRef<HTMLButtonElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<OutgoingAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState('');
   const sessionKeyRef = useRef('');
   // Track pending slash command so the next reply can be routed to the panel
   const pendingCmdRef = useRef<string | null>(null);
   // Mirrors cmdResult.command so card-action callbacks can route follow-ups back to the panel
   const cmdPanelRef = useRef<string | null>(null);
 
-  // Web platform uses its own per-project session key by default.
-  // Only use the original session's key when the user explicitly switches via the drawer.
-  const webSessionKey = projectName ? `bridge:web-admin:${projectName}` : '';
+  // Web platform uses its own per-browser session key by default, so two
+  // viewers do not share one agent session. Only use the original session's
+  // key when the user explicitly switches via the drawer.
+  const webSessionKey = projectName ? makeWebSessionKey(projectName) : '';
   const sessionKey = userPickedSession && currentSession?.session_key
     ? currentSession.session_key
     : webSessionKey;
@@ -342,18 +438,12 @@ export default function ChatView() {
       setSessions(sorted);
 
       if (sorted.length > 0) {
-        const latest = sorted[0];
-        const detail = await getSession(projectName, latest.id, 200);
+        const target = targetSessionId ? sorted.find((s) => s.id === targetSessionId) : undefined;
+        const chosen = target || sorted[0];
+        setUserPickedSession(!!target);
+        const detail = await getSession(projectName, chosen.id, 200);
         setCurrentSession(detail);
-        if (detail.history) {
-          setMessages(detail.history.map((h, i) => ({
-            id: `hist-${i}`,
-            role: h.role as 'user' | 'assistant',
-            content: h.content,
-            format: 'markdown',
-            timestamp: h.timestamp,
-          })));
-        }
+        setMessages(detailToMessages(detail));
       } else {
         setCurrentSession(null);
         setMessages([]);
@@ -361,7 +451,7 @@ export default function ChatView() {
     } finally {
       setLoading(false);
     }
-  }, [projectName]);
+  }, [projectName, targetSessionId]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -379,17 +469,7 @@ export default function ChatView() {
     try {
       const detail = await getSession(projectName, s.id, 200);
       setCurrentSession(detail);
-      if (detail.history) {
-        setMessages(detail.history.map((h, i) => ({
-          id: `hist-${i}`,
-          role: h.role as 'user' | 'assistant',
-          content: h.content,
-          format: 'markdown',
-          timestamp: h.timestamp,
-        })));
-      } else {
-        setMessages([]);
-      }
+      setMessages(detailToMessages(detail));
     } finally {
       setLoading(false);
     }
@@ -421,44 +501,88 @@ export default function ChatView() {
     }
 
     if (msg.type === 'reply') {
+      const reply = msg as Extract<BridgeIncoming, { type: 'reply' }>;
       setMessages(prev => {
-        const streamIdx = prev.findIndex(m => m.streaming && m.role === 'assistant');
+        const streamIdx = findReplyTarget(prev);
+        const format = reply.format === 'markdown' ? 'markdown' : 'text';
         if (streamIdx >= 0) {
           const updated = [...prev];
-          updated[streamIdx] = { ...updated[streamIdx], content: msg.content, format: (msg as any).format === 'markdown' ? 'markdown' : 'text', streaming: false };
+          updated[streamIdx] = { ...updated[streamIdx], content: reply.content, format, streaming: false };
           return updated;
         }
-        return [...prev, { id: `reply-${Date.now()}`, role: 'assistant', content: msg.content, format: (msg as any).format === 'markdown' ? 'markdown' : 'text' }];
+        return [...prev, { id: `reply-${Date.now()}`, role: 'assistant', kind: 'message', content: reply.content, format }];
       });
       setTyping(false);
+      notify(projectName || 'cc-connect', reply.content.slice(0, 160));
     } else if (msg.type === 'reply_stream') {
       const stream = msg as Extract<BridgeIncoming, { type: 'reply_stream' }>;
       if (stream.done) {
         setMessages(prev => {
-          const idx = prev.findIndex(m => m.streaming);
+          const idx = findReplyTarget(prev, stream.preview_handle);
           if (idx >= 0) {
             const updated = [...prev];
             updated[idx] = { ...updated[idx], content: stream.full_text, streaming: false };
             return updated;
           }
-          return [...prev, { id: `stream-done-${Date.now()}`, role: 'assistant', content: stream.full_text, format: 'markdown' }];
+          return [...prev, { id: `stream-done-${Date.now()}`, role: 'assistant', kind: 'message', content: stream.full_text, format: 'markdown' }];
         });
         setTyping(false);
       } else {
         setMessages(prev => {
-          const idx = prev.findIndex(m => m.streaming);
+          const idx = findReplyTarget(prev, stream.preview_handle);
           if (idx >= 0) {
             const updated = [...prev];
             updated[idx] = { ...updated[idx], content: stream.full_text };
             return updated;
           }
-          return [...prev, { id: `stream-${Date.now()}`, role: 'assistant', content: stream.full_text, format: 'markdown', streaming: true }];
+          return [...prev, { id: `stream-${Date.now()}`, role: 'assistant', kind: 'message', content: stream.full_text, format: 'markdown', streaming: true }];
         });
       }
+    } else if (msg.type === 'progress') {
+      const progress = msg as Extract<BridgeIncoming, { type: 'progress' }>;
+      if (progress.content) {
+        setMessages(prev => [...prev, {
+          id: `progress-${Date.now()}-${prev.length}`,
+          role: 'assistant',
+          kind: 'progress',
+          content: progress.content,
+          format: 'markdown',
+        }]);
+      }
+      setTyping(false);
+    } else if (msg.type === 'image' || msg.type === 'file' || msg.type === 'audio' || msg.type === 'video') {
+      const media = msg as any;
+      if (!media.data) {
+        setTyping(false);
+        return;
+      }
+      const mime = media.mime_type || (
+        msg.type === 'image' ? 'image/png' :
+        msg.type === 'video' ? 'video/mp4' :
+        msg.type === 'audio' ? 'audio/mpeg' : 'application/octet-stream'
+      );
+      const fileName = media.file_name || (
+        msg.type === 'image' ? 'image' :
+        msg.type === 'video' ? 'video' :
+        msg.type === 'audio' ? 'audio' : 'file'
+      );
+      setMessages(prev => [...prev, {
+        id: `${msg.type}-${Date.now()}-${prev.length}`,
+        role: 'assistant',
+        kind: 'media',
+        mediaKind: msg.type as 'image' | 'file' | 'audio' | 'video',
+        mediaUrl: `data:${mime};base64,${media.data}`,
+        mimeType: mime,
+        fileName,
+        format: msg.type as ChatMsg['format'],
+        content: '',
+      }]);
+      setTyping(false);
     } else if (msg.type === 'card') {
       const card = msg as Extract<BridgeIncoming, { type: 'card' }>;
       setMessages(prev => [...prev, { id: `card-${Date.now()}`, role: 'assistant', content: '', format: 'card', card: card.card }]);
       setTyping(false);
+      notify(projectName || 'cc-connect', card.card?.header?.title || t('chat.agentFinished', 'Agent finished'));
     } else if (msg.type === 'buttons') {
       const btns = msg as Extract<BridgeIncoming, { type: 'buttons' }>;
       setMessages(prev => [...prev, { id: `btn-${Date.now()}`, role: 'assistant', content: btns.content, format: 'buttons', buttons: btns.buttons }]);
@@ -471,11 +595,11 @@ export default function ChatView() {
       const ps = msg as Extract<BridgeIncoming, { type: 'preview_start' }>;
       const handle = `web-preview-${++previewHandleCounter.current}`;
       sendPreviewAck(ps.ref_id, handle);
-      setMessages(prev => [...prev, { id: `stream-${handle}`, role: 'assistant', content: ps.content, format: 'markdown', streaming: true }]);
+      setMessages(prev => [...prev, { id: `stream-${handle}`, role: 'assistant', kind: 'message', content: ps.content, format: 'markdown', streaming: true, previewHandle: handle }]);
     } else if (msg.type === 'update_message') {
       const um = msg as Extract<BridgeIncoming, { type: 'update_message' }>;
       setMessages(prev => {
-        const idx = prev.findIndex(m => m.streaming);
+        const idx = findReplyTarget(prev, um.preview_handle);
         if (idx >= 0) {
           const updated = [...prev];
           updated[idx] = { ...updated[idx], content: um.content };
@@ -484,18 +608,22 @@ export default function ChatView() {
         return prev;
       });
     } else if (msg.type === 'delete_message') {
+      const dm = msg as Extract<BridgeIncoming, { type: 'delete_message' }>;
       setMessages(prev => {
-        const idx = prev.findIndex(m => m.streaming);
+        const idx = findReplyTarget(prev, dm.preview_handle);
         if (idx >= 0) return prev.filter((_, i) => i !== idx);
         return prev;
       });
     }
-  }, []);
+  }, [projectName, t]);
 
   const { status: bridgeStatus, sendMessage: bridgeSend, sendCardAction, sendPreviewAck } = useBridgeSocket({
     bridgeCfg,
+    platformName: webPlatformName(),
     sessionKey,
     projectName: projectName || '',
+    userId: webUserId(),
+    userName: webUserName(),
     onMessage: handleBridgeMessage,
   });
 
@@ -506,21 +634,57 @@ export default function ChatView() {
 
   // Send message
   const handleSend = useCallback(() => {
-    if (!input.trim() || bridgeStatus !== 'connected') return;
     const content = input.trim();
+    const attachments = pendingAttachments;
+    if ((!content && attachments.length === 0) || bridgeStatus !== 'connected') return;
     setInput('');
+    setPendingAttachments([]);
     setSending(true);
 
     const cmdToken = content.split(' ')[0];
-    const isKnownCmd = knownCommands.has(cmdToken);
+    const isKnownCmd = content.startsWith('/') && knownCommands.has(cmdToken);
     if (isKnownCmd && !chatCommands.has(cmdToken)) {
       pendingCmdRef.current = cmdToken;
     } else {
-      setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content }]);
+      setMessages(prev => [...prev, {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: content || attachments.map((a) => a.fileName).join(', '),
+        attachments: attachments.map((a) => ({ name: a.fileName, kind: a.kind })),
+      }]);
     }
-    bridgeSend(content);
+    bridgeSend(content, attachments);
     setTimeout(() => setSending(false), 300);
-  }, [input, bridgeStatus, bridgeSend]);
+  }, [input, pendingAttachments, bridgeStatus, bridgeSend]);
+
+  const handleFileSelect = useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAttachmentError('');
+    const selected = Array.from(files);
+    const tooLarge = selected.find((f) => f.size > MAX_ATTACHMENT_BYTES);
+    if (tooLarge) {
+      setAttachmentError(t('chat.attachmentTooLarge', { name: tooLarge.name }));
+      return;
+    }
+    selected.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const comma = result.indexOf(',');
+        if (comma < 0) return;
+        const data = result.slice(comma + 1);
+        const mimeType = file.type || 'application/octet-stream';
+        const kind: 'image' | 'file' = mimeType.startsWith('image/') ? 'image' : 'file';
+        setPendingAttachments(prev => [...prev, { kind, mimeType, fileName: file.name, data }]);
+      };
+      reader.onerror = () => setAttachmentError(t('chat.attachmentReadFailed', { name: file.name }));
+      reader.readAsDataURL(file);
+    });
+  }, [t]);
+
+  const removeAttachment = useCallback((index: number) => {
+    setPendingAttachments(prev => prev.filter((_, i) => i !== index));
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -565,6 +729,32 @@ export default function ChatView() {
     bridgeSend('/new');
     setDrawerOpen(false);
   }, [bridgeStatus, bridgeSend]);
+
+  const handleRenameSession = useCallback(async (session: Session) => {
+    if (!projectName) return;
+    const next = window.prompt(t('common.rename'), session.name || '');
+    if (next === null) return;
+    const name = next.trim();
+    if (!name) return;
+    try {
+      await renameSession(projectName, session.id, name);
+      await fetchData();
+    } catch (e: any) {
+      alert(e?.message || String(e));
+    }
+  }, [projectName, t, fetchData]);
+
+  const handleDeleteSession = useCallback(async (session: Session) => {
+    if (!projectName) return;
+    if (!window.confirm(t('common.confirmDelete'))) return;
+    try {
+      await deleteSession(projectName, session.id);
+      setDrawerOpen(false);
+      await fetchData();
+    } catch (e: any) {
+      alert(e?.message || String(e));
+    }
+  }, [projectName, t, fetchData]);
 
   const canSend = bridgeStatus === 'connected';
 
@@ -612,7 +802,7 @@ export default function ChatView() {
         )}
         {messages.map((msg) => {
           const isUser = msg.role === 'user';
-          const isEmpty = !msg.content && !msg.card && !msg.buttons && !msg.imageUrl && !msg.fileName;
+          const isEmpty = !msg.content && !msg.card && !msg.buttons && !msg.imageUrl && !msg.fileName && !msg.mediaUrl && !(msg.attachments?.length);
           return (
             <div key={msg.id} className={cn('flex gap-3', isUser ? 'justify-end' : 'justify-start')}>
               {!isUser && (
@@ -621,14 +811,23 @@ export default function ChatView() {
                 </div>
               )}
               <div className={cn(
-                'group/msg relative rounded-2xl px-5 py-3.5 text-sm',
-                isUser
-                  ? 'max-w-[70%] bg-accent text-black rounded-br-md'
-                  : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm',
+                'group/msg relative rounded-2xl text-sm',
+                msg.kind === 'progress'
+                  ? 'max-w-[85%]'
+                  : cn(
+                    'px-5 py-3.5',
+                    isUser
+                      ? 'max-w-[70%] bg-accent text-black rounded-br-md'
+                      : 'max-w-[85%] bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/60 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm',
+                  ),
                 msg.streaming && 'animate-pulse-subtle',
               )}>
                 {isEmpty ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500 italic">{t('chat.unsupportedMessage', '[Unsupported message]')}</p>
+                ) : msg.kind === 'progress' ? (
+                  <ProgressBlock content={msg.content} />
+                ) : msg.kind === 'media' ? (
+                  <MediaBlock msg={msg} />
                 ) : msg.format === 'card' ? (
                   <CardBlock card={msg.card} onAction={handleCardAction} />
                 ) : msg.format === 'buttons' && msg.buttons ? (
@@ -636,16 +835,28 @@ export default function ChatView() {
                 ) : msg.format === 'image' && msg.imageUrl ? (
                   <ImageBlock url={msg.imageUrl} />
                 ) : msg.format === 'file' && msg.fileName ? (
-                  <FileBlock name={msg.fileName} size={msg.fileSize} />
+                  <FileBlock name={msg.fileName} size={msg.fileSize} url={msg.mediaUrl} />
                 ) : isUser ? (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <div className="space-y-2">
+                    {msg.content && <div className="whitespace-pre-wrap">{msg.content}</div>}
+                    {msg.attachments?.length ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {msg.attachments.map((a, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 rounded-md bg-black/10 px-2 py-0.5 text-[11px]">
+                            {a.kind === 'image' ? <ImageIcon size={11} /> : <FileText size={11} />}
+                            {a.name}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : (
                   <RenderMarkdown content={msg.content} />
                 )}
                 {msg.streaming && (
                   <span className="inline-block w-1.5 h-4 bg-accent/60 rounded-sm ml-0.5 animate-pulse" />
                 )}
-                {!isUser && !msg.streaming && msg.content && (
+                {!isUser && !msg.streaming && msg.content && msg.kind !== 'progress' && (
                   <MsgCopyButton text={msg.content} />
                 )}
               </div>
@@ -677,7 +888,22 @@ export default function ChatView() {
       {/* Input area */}
       <div className="border-t border-gray-200 dark:border-gray-800 pt-3 shrink-0">
         {canSend ? (
-          <div className="relative flex items-end gap-2">
+          <div className="space-y-2">
+            {pendingAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-1">
+                {pendingAttachments.map((a, i) => (
+                  <span key={`${a.fileName}-${i}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-300">
+                    {a.kind === 'image' ? <ImageIcon size={12} /> : <FileText size={12} />}
+                    <span className="max-w-[180px] truncate">{a.fileName}</span>
+                    <button type="button" onClick={() => removeAttachment(i)} className="text-gray-400 hover:text-red-500">
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {attachmentError && <div className="px-1 text-xs text-red-500">{attachmentError}</div>}
+            <div className="relative flex items-end gap-2">
             {/* Command palette trigger */}
             <div className="relative">
               <button
@@ -702,6 +928,26 @@ export default function ChatView() {
               />
             </div>
 
+            {/* Attachment picker */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-3 rounded-xl text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06] transition-colors"
+              title={t('chat.attach')}
+            >
+              <Paperclip size={18} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                handleFileSelect(e.target.files);
+                e.target.value = '';
+              }}
+            />
+
             {/* Text input */}
             <div className="flex-1 relative">
               <input
@@ -718,11 +964,12 @@ export default function ChatView() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={sending || !input.trim()}
+              disabled={sending || (!input.trim() && pendingAttachments.length === 0)}
               className="p-3 rounded-xl bg-accent text-black hover:bg-accent-dim transition-colors disabled:opacity-50 flex items-center"
             >
               {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>
+            </div>
           </div>
         ) : !bridgeCfg ? (
           <div className="flex items-center gap-2 px-4 py-3 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
@@ -754,6 +1001,8 @@ export default function ChatView() {
         currentSessionId={currentSession?.id || ''}
         onSelect={switchToSession}
         onNewSession={handleNewSession}
+        onRename={handleRenameSession}
+        onDelete={handleDeleteSession}
       />
 
       {/* Command result panel */}

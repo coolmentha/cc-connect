@@ -1,10 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileCode, RefreshCw, RotateCcw, Settings2, ChevronDown, ChevronRight } from 'lucide-react';
-import { Card, Button } from '@/components/ui';
-import { restartSystem, reloadConfig } from '@/api/status';
+import { Card, Button, Input } from '@/components/ui';
+import { restartSystem, reloadConfig, getStatus, type SystemStatus } from '@/api/status';
 import api from '@/api/client';
 import GlobalSettings from './GlobalSettings';
+import LogsPanel from './LogsPanel';
+import { notificationsEnabled, setNotificationsEnabled, requestNotificationPermission } from '@/lib/notify';
+import { getWebClientId, getWebDisplayName, setWebDisplayName } from '@/lib/webIdentity';
 
 export default function SystemConfig() {
   const { t } = useTranslation();
@@ -13,6 +16,22 @@ export default function SystemConfig() {
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState('');
   const [showRaw, setShowRaw] = useState(false);
+  const [status, setStatus] = useState<SystemStatus | null>(null);
+  const version = status?.version || '';
+  const [notifEnabled, setNotifEnabledState] = useState(() => notificationsEnabled());
+  const [displayName, setDisplayName] = useState(() => getWebDisplayName());
+
+  const toggleNotifications = async (next: boolean) => {
+    if (next) {
+      const ok = await requestNotificationPermission();
+      if (!ok) {
+        setActionMsg(t('system.notificationsDenied', 'Notification permission was denied by the browser.'));
+        return;
+      }
+    }
+    setNotificationsEnabled(next);
+    setNotifEnabledState(next);
+  };
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -41,6 +60,7 @@ export default function SystemConfig() {
 
   useEffect(() => {
     fetchConfig();
+    getStatus().then((s) => setStatus(s)).catch(() => {});
     const handler = () => fetchConfig();
     window.addEventListener('cc:refresh', handler);
     return () => window.removeEventListener('cc:refresh', handler);
@@ -69,6 +89,79 @@ export default function SystemConfig() {
 
   return (
     <div className="space-y-6 animate-fade-in ">
+      {/* Version & upgrade */}
+      <Card>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('system.version', 'Version')}</h3>
+            <p className="text-sm font-mono text-gray-700 dark:text-gray-300 mt-1">{version || '-'}</p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {t('system.upgradeHint', 'To upgrade, run "cc-connect upgrade" or send /upgrade in chat.')}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Notifications */}
+      <Card>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('system.notifications', 'Desktop notifications')}</h3>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {t('system.notificationsHint', 'Show a browser notification when an agent reply arrives while this tab is in the background.')}
+            </p>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={notifEnabled}
+              onChange={(e) => toggleNotifications(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-accent focus:ring-accent"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300">{t('common.enable', 'Enable')}</span>
+          </label>
+        </div>
+      </Card>
+
+      {/* Web identity */}
+      <Card>
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('system.webIdentity', 'Web identity')}</h3>
+          <p className="text-[11px] text-gray-400 mt-1">{t('system.webIdentityHint', 'Each browser gets its own agent session.')}</p>
+          <p className="text-[10px] font-mono text-gray-400 mt-1">ID: {getWebClientId()}</p>
+        </div>
+        <div className="mt-3 max-w-sm space-y-2">
+          <Input
+            label={t('system.webDisplayName', 'Display name')}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+          <Button
+            size="sm"
+            onClick={() => {
+              setWebDisplayName(displayName);
+              setActionMsg(t('system.webIdentitySaved', 'Saved. Reload the page to apply the display name.'));
+            }}
+          >
+            {t('common.save')}
+          </Button>
+        </div>
+      </Card>
+
+      {/* Bridge status */}
+      <Card>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('system.bridgeStatus', 'Bridge')}</h3>
+        <p className="text-[11px] text-gray-400 mt-1">
+          {t('system.bridgeStatusHint', 'The web chat and external adapters connect through the Bridge WebSocket server.')}
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-300">
+          <div>{t('system.bridgeEnabled', 'Enabled')}: <span className="font-mono">{(status as any)?.bridge?.enabled ? 'yes' : 'no'}</span></div>
+          <div>{t('system.bridgePort', 'Port')}: <span className="font-mono">{(status as any)?.bridge?.port ?? '-'}</span></div>
+          <div>{t('system.bridgePath', 'Path')}: <span className="font-mono">{(status as any)?.bridge?.path ?? '-'}</span></div>
+          <div>{t('system.bridgeToken', 'Token set')}: <span className="font-mono">{(status as any)?.bridge?.token_set ? 'yes' : 'no'}</span></div>
+        </div>
+      </Card>
+
       {/* Actions */}
       <div className="flex flex-wrap gap-3">
         <Button variant="secondary" onClick={handleReload}><RefreshCw size={16} /> {t('system.reload')}</Button>
@@ -114,6 +207,9 @@ export default function SystemConfig() {
           </div>
         )}
       </Card>
+
+      {/* Logs */}
+      <LogsPanel />
     </div>
   );
 }

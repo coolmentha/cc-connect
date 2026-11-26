@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, ChevronDown, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { addPlatformToProject } from '@/api/projects';
+import { addPlatformToProject, updatePlatformInProject } from '@/api/projects';
 import { validateCloudWebForm } from '@/lib/cloudWebFormValidation';
 import { platformMeta, type FieldDef } from '@/lib/platformMeta';
 import { cn } from '@/lib/utils';
@@ -12,11 +12,12 @@ interface Props {
   projectName: string;
   workDir?: string;
   agentType?: string;
+  mode?: 'add' | 'edit';
   onComplete: () => void;
   onCancel: () => void;
 }
 
-export default function PlatformManualForm({ platformType, projectName, workDir, agentType, onComplete, onCancel }: Props) {
+export default function PlatformManualForm({ platformType, projectName, workDir, agentType, mode = 'add', onComplete, onCancel }: Props) {
   const { t } = useTranslation();
   const meta = platformMeta[platformType];
   const [values, setValues] = useState<Record<string, any>>(() => {
@@ -83,7 +84,11 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
           opts[f.key] = v;
         }
       }
-      await addPlatformToProject(projectName, { type: platformType, options: opts, work_dir: workDir, agent_type: agentType });
+      if (mode === 'edit') {
+        await updatePlatformInProject(projectName, platformType, opts);
+      } else {
+        await addPlatformToProject(projectName, { type: platformType, options: opts, work_dir: workDir, agent_type: agentType });
+      }
       onComplete();
     } catch (e: any) {
       setError(e?.message || String(e));
@@ -126,7 +131,9 @@ export default function PlatformManualForm({ platformType, projectName, workDir,
 
       <div className="flex justify-between pt-2">
         <Button variant="secondary" size="sm" onClick={onCancel}>{t('common.back')}</Button>
-        <Button onClick={handleSave} loading={saving}>{t('setup.addPlatform', 'Add platform')}</Button>
+        <Button onClick={handleSave} loading={saving}>
+          {mode === 'edit' ? t('common.save') : t('setup.addPlatform', 'Add platform')}
+        </Button>
       </div>
     </div>
   );

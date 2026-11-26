@@ -1,0 +1,17 @@
+{
+  "name": "CC-Connect Admin",
+  "short_name": "CC-Connect",
+  "description": "Manage cc-connect projects, sessions and scheduled jobs.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f4f6",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

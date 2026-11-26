@@ -37,6 +37,12 @@ const PLATFORM_OPTIONS: { key: string; label: string; color: string; qr?: boolea
   { key: 'weibo', label: 'Weibo (微博)', color: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
   { key: 'tuitui', label: 'TuiTui (推推)', color: 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300' },
   { key: 'cloud_web', label: 'Cloud Web (自建 IM)', color: 'bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400' },
+  { key: 'googlechat', label: 'Google Chat', color: 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400' },
+  { key: 'matrix', label: 'Matrix', color: 'bg-slate-50 dark:bg-slate-900/30 text-slate-600 dark:text-slate-400' },
+  { key: 'max', label: 'MAX', color: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' },
+  { key: 'webex', label: 'Webex', color: 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400' },
+  { key: 'wps-agentspace', label: 'WPS Agent Space', color: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
+  { key: 'wps-xiezuo', label: 'WPS 协作', color: 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' },
 ];
 
 export default function ProjectList() {

@@ -535,6 +535,10 @@ type HistoryEntry struct {
 	Role      string    `json:"role"` // "user" or "assistant"
 	Content   string    `json:"content"`
 	Timestamp time.Time `json:"timestamp"`
+	// Kind distinguishes intermediate progress entries ("thinking", "tool",
+	// "tool_result") from normal conversation turns. Empty means "message" for
+	// backwards compatibility with existing session files.
+	Kind string `json:"kind,omitempty"`
 }
 
 // AgentSessionInfo describes one session as reported by the agent backend.

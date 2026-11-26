@@ -26,9 +26,18 @@ export interface Session {
   agent_session_id?: string;
 }
 
+export interface ProgressEntry {
+  role: string;
+  kind?: string;
+  content: string;
+  timestamp: string;
+}
+
 export interface SessionDetail extends Session {
   agent_session_id: string;
-  history: { role: string; content: string; timestamp: string }[];
+  history: { role: string; kind?: string; content: string; timestamp: string }[];
+  /** Persisted thinking/tool output, shown separately from the answer. */
+  progress?: ProgressEntry[];
 }
 
 export const listSessions = (project: string) =>
@@ -38,6 +47,8 @@ export const getSession = (project: string, id: string, historyLimit?: number) =
 export const createSession = (project: string, body: { session_key: string; name?: string }) =>
   api.post(`/projects/${project}/sessions`, body);
 export const deleteSession = (project: string, id: string) => api.delete(`/projects/${project}/sessions/${id}`);
+export const renameSession = (project: string, id: string, name: string) =>
+  api.patch<{ id: string; name: string }>(`/projects/${project}/sessions/${id}`, { name });
 export const switchSession = (project: string, body: { session_key: string; session_id: string }) =>
   api.post(`/projects/${project}/sessions/switch`, body);
 export const sendMessage = (project: string, body: { session_key: string; message: string }) =>

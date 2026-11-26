@@ -207,4 +207,70 @@ export const platformMeta: Record<string, PlatformMeta> = {
       { key: 'group_reply_all', labelKey: 'fields.groupReplyAll', type: 'boolean', group: 'advanced' },
     ],
   },
+  googlechat: {
+    label: 'Google Chat',
+    fields: [
+      { key: 'subscription', labelKey: 'fields.subscription', required: true, placeholder: 'projects/my-project/subscriptions/my-sub' },
+      { key: 'credentials_file', labelKey: 'fields.credentialsFile', placeholder: '/path/to/service-account.json', hintKey: 'fields.credentialsFileHint' },
+      { key: 'session_scope', labelKey: 'fields.sessionScope', type: 'select', options: ['space', 'thread', 'user'], group: 'advanced' },
+      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
+    ],
+  },
+  matrix: {
+    label: 'Matrix',
+    fields: [
+      { key: 'homeserver', labelKey: 'fields.homeserver', required: true, placeholder: 'https://matrix.org' },
+      { key: 'access_token', labelKey: 'fields.accessToken', required: true, type: 'password' },
+      { key: 'user_id', labelKey: 'fields.userId', placeholder: '@bot:matrix.org' },
+      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
+      { key: 'auto_join', labelKey: 'fields.autoJoin', type: 'boolean', group: 'advanced' },
+      { key: 'auto_verify', labelKey: 'fields.autoVerify', type: 'boolean', group: 'advanced' },
+      { key: 'cross_signing_password', labelKey: 'fields.crossSigningPassword', type: 'password', group: 'advanced' },
+      { key: 'proxy', labelKey: 'fields.proxy', group: 'advanced' },
+      { key: 'share_session_in_channel', labelKey: 'fields.sharedGroupSession', type: 'boolean', group: 'advanced' },
+      { key: 'group_reply_all', labelKey: 'fields.groupReplyAll', type: 'boolean', group: 'advanced' },
+    ],
+  },
+  max: {
+    label: 'MAX',
+    fields: [
+      { key: 'token', labelKey: 'fields.botToken', required: true, type: 'password' },
+      { key: 'webhook_url', labelKey: 'fields.publicUrl', placeholder: 'https://example.com/max/webhook' },
+      { key: 'webhook_listen', labelKey: 'fields.listen', placeholder: ':8090', group: 'advanced' },
+      { key: 'webhook_path', labelKey: 'fields.webhookPath', placeholder: '/max/webhook', group: 'advanced' },
+      { key: 'webhook_secret', labelKey: 'fields.webhookSecret', type: 'password', group: 'advanced' },
+      { key: 'api_base', labelKey: 'fields.apiBaseUrl', group: 'advanced' },
+      { key: 'max_attachment_size_mb', labelKey: 'fields.maxAttachmentMb', type: 'number', group: 'advanced' },
+      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
+    ],
+  },
+  webex: {
+    label: 'Webex',
+    fields: [
+      { key: 'token', labelKey: 'fields.botToken', required: true, type: 'password' },
+      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
+    ],
+  },
+  'wps-agentspace': {
+    label: 'WPS Agent Space',
+    fields: [
+      { key: 'app_id', labelKey: 'fields.appId', required: true },
+      { key: 'wps_sid', labelKey: 'fields.wpsSid', required: true, type: 'password' },
+      { key: 'base_url', labelKey: 'fields.apiBaseUrl', group: 'advanced' },
+      { key: 'device_name', labelKey: 'fields.deviceName', group: 'advanced' },
+      { key: 'device_uuid', labelKey: 'fields.deviceUuid', group: 'advanced' },
+      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
+    ],
+  },
+  'wps-xiezuo': {
+    label: 'WPS 协作',
+    fields: [
+      { key: 'app_id', labelKey: 'fields.appId', required: true },
+      { key: 'app_secret', labelKey: 'fields.appSecret', required: true, type: 'password' },
+      { key: 'base_url', labelKey: 'fields.apiBaseUrl', group: 'advanced' },
+      { key: 'clean_reply', labelKey: 'fields.cleanReply', type: 'boolean', group: 'advanced' },
+      { key: 'max_attachment_bytes', labelKey: 'fields.maxAttachmentBytes', type: 'number', group: 'advanced' },
+      { key: 'allow_from', labelKey: 'fields.allowFrom', placeholder: '* (all)', group: 'advanced' },
+    ],
+  },
 };

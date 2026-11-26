@@ -305,6 +305,15 @@ type InlineButtonSender interface {
 	SendWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]ButtonOption) error
 }
 
+// ProgressMessageSender is an optional interface for platforms that want
+// intermediate agent progress (thinking, tool calls, tool results) delivered
+// as a distinct message type instead of a normal reply. This lets clients
+// style or group progress separately and keeps it from being overwritten by
+// the final answer.
+type ProgressMessageSender interface {
+	SendProgress(ctx context.Context, replyCtx any, content string) error
+}
+
 // CardSender is an optional interface for platforms that support sending
 // structured rich cards (e.g. Feishu Interactive Card). Platforms that do not
 // implement this interface will receive a plain-text fallback via Card.RenderText().

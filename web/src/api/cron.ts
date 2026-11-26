@@ -26,3 +26,13 @@ export const createCronJob = (body: Partial<CronJob>) => api.post<CronJob>('/cro
 export const updateCronJob = (id: string, fields: Record<string, any>) => api.patch<CronJob>(`/cron/${id}`, fields);
 export const deleteCronJob = (id: string) => api.delete(`/cron/${id}`);
 export const triggerCronJob = (id: string) => api.post<{ id: string; status: string }>(`/cron/${id}/exec`);
+
+export interface CronRunRecord {
+  id: string;
+  run_at: string;
+  success: boolean;
+  error?: string;
+}
+
+export const listCronHistory = (id: string) =>
+  api.get<{ history: CronRunRecord[] }>(`/cron/${id}/history`);

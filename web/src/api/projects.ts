@@ -24,7 +24,7 @@ export interface ProjectDetail {
   inject_sender?: boolean;
   provider_refs?: string[];
   platform_configs?: PlatformConfigInfo[];
-  platforms: { type: string; connected: boolean }[];
+  platforms: { type: string; connected: boolean; degraded?: boolean; degraded_reason?: string; degraded_since?: string }[];
   sessions_count: number;
   active_session_keys: string[];
   workspace_mode?: string;
@@ -79,6 +79,22 @@ export const addPlatformToProject = (projectName: string, body: {
 
 export const deleteProject = (name: string) =>
   api.delete<{ message: string; restart_required: boolean }>(`/projects/${name}`);
+
+export const removePlatformFromProject = (name: string, platformType: string) =>
+  api.delete<{ message: string; restart_required: boolean }>(`/projects/${name}/platforms/${encodeURIComponent(platformType)}`);
+
+export const updatePlatformInProject = (name: string, platformType: string, options: Record<string, any>) =>
+  api.put<{ message: string; restart_required: boolean }>(`/projects/${name}/platforms/${encodeURIComponent(platformType)}`, { options });
+
+export interface DoctorCheck {
+  name: string;
+  status: 'pass' | 'warn' | 'fail';
+  detail: string;
+  latency_ms: number;
+}
+
+export const runDoctor = (name: string) =>
+  api.get<{ checks: DoctorCheck[] }>(`/projects/${name}/doctor`);
 
 export const listWorkspaces = (name: string) =>
   api.get<{ base_dir: string; bindings: WorkspaceBinding[]; suggestions?: string[] }>(`/projects/${name}/workspaces`);

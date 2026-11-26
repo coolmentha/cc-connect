@@ -243,6 +243,27 @@ A complete reply message to send to the user.
 | `content` | string | yes | Reply text content. |
 | `format` | string | no | `"text"` (default) or `"markdown"`. |
 
+#### `progress`
+
+Intermediate thinking / tool-call output. Only sent if the adapter declared the
+`"progress"` capability. Progress messages are additive: render them alongside
+the final `reply` (do not overwrite them with the answer).
+
+```json
+{
+  "type": "progress",
+  "session_key": "web:client:project",
+  "reply_ctx": "conv-abc-123",
+  "content": "💭 **Thinking**\n\n...",
+  "format": "markdown"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | string | Progress text (thinking, tool call, or tool result). |
+| `format` | string | `"markdown"` (default) or `"text"`. |
+
 #### `reply_stream`
 
 Streaming delta for real-time typing preview. Only sent if the adapter declared `"preview"` capability.
@@ -477,6 +498,7 @@ Notify the adapter of a server-side error.
 | `typing` | Typing indicator | `typing_start`, `typing_stop` |
 | `update_message` | Edit existing messages | `update_message` |
 | `preview` | Streaming preview (requires `update_message`) | `preview_start`, `reply_stream` |
+| `progress` | Receive intermediate thinking/tool messages | `progress` |
 | `delete_message` | Delete messages | `delete_message` |
 | `reconstruct_reply` | Can reconstruct reply context from session_key | Enables cron/heartbeat messages |
 

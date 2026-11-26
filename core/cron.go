@@ -123,10 +123,19 @@ func validateCronJob(j *CronJob) error {
 }
 
 // CronStore persists cron jobs to a JSON file.
+// CronRunRecord is one in-memory execution record for the management UI.
+type CronRunRecord struct {
+	ID      string    `json:"id"`
+	RunAt   time.Time `json:"run_at"`
+	Success bool      `json:"success"`
+	Error   string    `json:"error,omitempty"`
+}
+
 type CronStore struct {
-	path string
-	mu   sync.Mutex
-	jobs []*CronJob
+	path    string
+	mu      sync.Mutex
+	jobs    []*CronJob
+	history map[string][]CronRunRecord
 }
 
 func NewCronStore(dataDir string) (*CronStore, error) {
@@ -135,7 +144,7 @@ func NewCronStore(dataDir string) (*CronStore, error) {
 		return nil, err
 	}
 	path := filepath.Join(dir, "jobs.json")
-	s := &CronStore{path: path}
+	s := &CronStore{path: path, history: make(map[string][]CronRunRecord)}
 	s.load()
 	return s, nil
 }
@@ -236,12 +245,30 @@ func (s *CronStore) MarkRun(id string, err error) {
 			} else {
 				j.LastError = ""
 			}
+			rec := CronRunRecord{ID: id, RunAt: j.LastRun, Success: err == nil}
+			if err != nil {
+				rec.Error = err.Error()
+			}
+			hist := append(s.history[id], rec)
+			if len(hist) > 50 {
+				hist = append([]CronRunRecord(nil), hist[len(hist)-50:]...)
+			}
+			s.history[id] = hist
 			if saveErr := s.save(); saveErr != nil {
 				slog.Warn("cron: failed to save after mark run", "error", saveErr)
 			}
 			return
 		}
 	}
+}
+
+// History returns recent in-memory run records for one job (newest last).
+func (s *CronStore) History(id string) []CronRunRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]CronRunRecord, len(s.history[id]))
+	copy(out, s.history[id])
+	return out
 }
 
 func (s *CronStore) List() []*CronJob {

@@ -4,11 +4,14 @@ import {
   LayoutDashboard,
   FolderKanban,
   MessageSquare,
+  MessagesSquare,
   Clock,
+  Timer,
   Settings,
   ChevronLeft,
   ChevronRight,
   Plug,
+  Cable,
   Puzzle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -20,11 +23,14 @@ const navItems = [
   { key: 'providers', path: '/providers', icon: Plug },
   { key: 'skills', path: '/skills', icon: Puzzle },
   { key: 'chat', path: '/chat', icon: MessageSquare },
+  { key: 'sessions', path: '/sessions', icon: MessagesSquare },
+  { key: 'bridge', path: '/bridge', icon: Cable },
   { key: 'cron', path: '/cron', icon: Clock },
+  { key: 'timer', path: '/timer', icon: Timer },
   { key: 'system', path: '/system', icon: Settings },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: boolean; onClose?: () => void }) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -34,6 +40,8 @@ export default function Sidebar() {
         'h-screen flex flex-col border-r transition-all duration-300 ease-out',
         'bg-white/75 backdrop-blur-xl border-gray-200/80',
         'dark:bg-[rgba(0,0,0,0.85)] dark:backdrop-blur-xl dark:border-white/[0.08]',
+        'fixed inset-y-0 left-0 z-50 lg:static lg:z-auto',
+        mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         collapsed ? 'w-16' : 'w-56',
       )}
     >
@@ -63,6 +71,7 @@ export default function Sidebar() {
             key={key}
             to={path}
             end={path === '/'}
+            onClick={() => onClose?.()}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',

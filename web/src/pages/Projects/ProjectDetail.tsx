@@ -3,20 +3,23 @@ import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plug, Heart, Settings, Layers, Zap, Pause, Play,
-  Trash2, Plus, Check, Clock, ExternalLink, Link2, FolderTree, Folder,
+  Trash2, Plus, Check, Clock, ExternalLink, Link2, FolderTree, Folder, Users, Pencil, Stethoscope,
 } from 'lucide-react';
 import { Card, Badge, Button, Input, Modal, EmptyState } from '@/components/ui';
 import {
-  getProject, updateProject, deleteProject, listAgentTypes,
+  getProject, updateProject, deleteProject, listAgentTypes, removePlatformFromProject, runDoctor,
   listWorkspaces, bindWorkspace, unbindWorkspace,
+  type DoctorCheck,
   type ProjectDetail as ProjectDetailType, type WorkspaceBinding,
 } from '@/api/projects';
-import { listProviders, addProvider, removeProvider, activateProvider, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
+import { listProviders, addProvider, removeProvider, activateProvider, listModels, setModel, type Provider, listGlobalProviders, type GlobalProvider, saveProviderRefs } from '@/api/providers';
 import { getHeartbeat, pauseHeartbeat, resumeHeartbeat, triggerHeartbeat, setHeartbeatInterval, type HeartbeatStatus } from '@/api/heartbeat';
 import { restartSystem } from '@/api/status';
 import { formatTime, cn } from '@/lib/utils';
 import PlatformSetupQR from './PlatformSetupQR';
 import PlatformManualForm from './PlatformManualForm';
+import ProjectUsers from './ProjectUsers';
+import { getUsers, type UsersSnapshot } from '@/api/users';
 import { platformMeta } from '@/lib/platformMeta';
 
 const PLATFORM_OPTIONS: { key: string; label: string; color: string; abbr: string; qr?: boolean }[] = [
@@ -34,6 +37,12 @@ const PLATFORM_OPTIONS: { key: string; label: string; color: string; abbr: strin
   { key: 'weibo', label: 'Weibo (微博)', abbr: 'WB', color: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
   { key: 'tuitui', label: 'TuiTui (推推)', abbr: 'TT', color: 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300' },
   { key: 'cloud_web', label: 'Cloud Web (自建 IM)', abbr: 'CW', color: 'bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400' },
+  { key: 'googlechat', label: 'Google Chat', abbr: 'GC', color: 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400' },
+  { key: 'matrix', label: 'Matrix', abbr: 'MX', color: 'bg-slate-50 dark:bg-slate-900/30 text-slate-600 dark:text-slate-400' },
+  { key: 'max', label: 'MAX', abbr: 'MX', color: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' },
+  { key: 'webex', label: 'Webex', abbr: 'WX', color: 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400' },
+  { key: 'wps-agentspace', label: 'WPS Agent Space', abbr: 'WA', color: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
+  { key: 'wps-xiezuo', label: 'WPS 协作', abbr: 'WX', color: 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' },
 ];
 
 // Permission mode options per agent type. The values must match the keys
@@ -61,7 +70,7 @@ const MODE_OPTIONS_BY_AGENT: Record<string, { value: string; label: string }[]> 
 
 const isQRPlatform = (type: string) => type === 'feishu' || type === 'lark' || type === 'weixin';
 
-type Tab = 'overview' | 'providers' | 'heartbeat' | 'workspaces' | 'settings';
+type Tab = 'overview' | 'providers' | 'heartbeat' | 'workspaces' | 'users' | 'settings';
 
 export default function ProjectDetail() {
   const { t } = useTranslation();
@@ -100,6 +109,10 @@ export default function ProjectDetail() {
 
   // Agent type
   const [agentTypes, setAgentTypes] = useState<string[]>([]);
+  const [usersSnapshot, setUsersSnapshot] = useState<UsersSnapshot | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [currentModel, setCurrentModel] = useState('');
+  const [savingModel, setSavingModel] = useState(false);
   const [selectedAgentType, setSelectedAgentType] = useState('');
 
   // Global providers & refs
@@ -118,6 +131,11 @@ export default function ProjectDetail() {
 
   // Add platform
   const [showAddPlatform, setShowAddPlatform] = useState(false);
+  const [editingPlatform, setEditingPlatform] = useState<string | null>(null);
+  const [showDoctor, setShowDoctor] = useState(false);
+  const [doctorChecks, setDoctorChecks] = useState<DoctorCheck[]>([]);
+  const [doctorLoading, setDoctorLoading] = useState(false);
+  const [doctorError, setDoctorError] = useState('');
   const [addPlatType, setAddPlatType] = useState('');
   const [showRestartModal, setShowRestartModal] = useState(false);
 
@@ -128,13 +146,39 @@ export default function ProjectDetail() {
 
   // Permission mode options track the *effective* agent type: a freshly-picked
   // type overrides the saved one so the dropdown matches what would be saved.
-  // Unknown agent types fall back to ClaudeCode (matches the previous hardcoded
-  // behavior) so this change is non-breaking for other agents.
+  // Agents without a known mode list get a free-text field instead of being
+  // shown Claude Code's options.
   const effectiveAgentType = selectedAgentType || project?.agent_type || '';
-  const modeOptions = MODE_OPTIONS_BY_AGENT[effectiveAgentType] || CLAUDECODE_MODE_OPTIONS;
+  const modeOptions = MODE_OPTIONS_BY_AGENT[effectiveAgentType] || [];
 
-  const handleDeleteProject = async () => {
+  const handleRunDoctor = async () => {
     if (!name) return;
+    setShowDoctor(true);
+    setDoctorLoading(true);
+    setDoctorError('');
+    try {
+      const res = await runDoctor(name);
+      setDoctorChecks(res.checks || []);
+    } catch (e: any) {
+      setDoctorError(e?.message || String(e));
+    } finally {
+      setDoctorLoading(false);
+    }
+  };
+
+  const handleRemovePlatform = async (platformType: string) => {
+    if (!name) return;
+    if (!window.confirm(t('projects.removePlatformConfirm', 'Remove platform {{type}}?', { type: platformType }))) return;
+    try {
+      const res = await removePlatformFromProject(name, platformType);
+      if (res.restart_required) setShowRestartModal(true);
+      await fetchAll();
+    } catch (e: any) {
+      alert(e?.message || String(e));
+    }
+  };
+
+  const handleDeleteProject = async () => {    if (!name) return;
     setDeleting(true);
     try {
       const res = await deleteProject(name);
@@ -170,12 +214,14 @@ export default function ProjectDetail() {
     if (!name) return;
     try {
       setLoading(true);
-      const [proj, provs, hb, gp, at] = await Promise.allSettled([
+      const [proj, provs, hb, gp, at, mdl, usr] = await Promise.allSettled([
         getProject(name),
         listProviders(name),
         getHeartbeat(name),
         listGlobalProviders(),
         listAgentTypes(),
+        listModels(name),
+        getUsers(name),
       ]);
       if (proj.status === 'fulfilled') {
         setProject(proj.value);
@@ -211,6 +257,16 @@ export default function ProjectDetail() {
       }
       if (at.status === 'fulfilled') {
         setAgentTypes((at.value.agents || []).sort());
+      }
+      if (mdl.status === 'fulfilled') {
+        setModels(mdl.value.models || []);
+        setCurrentModel(mdl.value.current || '');
+      } else {
+        setModels([]);
+        setCurrentModel('');
+      }
+      if (usr.status === 'fulfilled') {
+        setUsersSnapshot(usr.value);
       }
     } finally {
       setLoading(false);
@@ -344,6 +400,7 @@ export default function ProjectDetail() {
     { key: 'providers', icon: Zap },
     { key: 'heartbeat', icon: Heart },
     { key: 'workspaces', icon: FolderTree },
+    { key: 'users', icon: Users },
     { key: 'settings', icon: Settings },
   ];
 
@@ -387,15 +444,41 @@ export default function ProjectDetail() {
           <Card>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('projects.platforms')}</h3>
-              <Button size="sm" onClick={() => { setShowAddPlatform(true); setAddPlatType(''); }}>
-                <Plus size={14} /> {t('setup.addPlatform', 'Add platform')}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={handleRunDoctor}>
+                  <Stethoscope size={14} /> {t('projects.runDoctor', 'Diagnostics')}
+                </Button>
+                <Button size="sm" onClick={() => { setShowAddPlatform(true); setAddPlatType(''); }}>
+                  <Plus size={14} /> {t('setup.addPlatform', 'Add platform')}
+                </Button>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {project.platforms?.map((p) => (
-                <Badge key={p.type} variant={p.connected ? 'success' : 'danger'}>
-                  <Plug size={12} className="mr-1" /> {p.type} {p.connected ? '✓' : '✗'}
-                </Badge>
+                <span key={p.type} className="group inline-flex items-center gap-1">
+                  <Badge variant={p.connected ? 'success' : 'danger'}>
+                    <Plug size={12} className="mr-1" /> {p.type} {p.connected ? '✓' : '✗'}
+                    {p.degraded_reason ? <span className="ml-1 opacity-70">({p.degraded_reason})</span> : null}
+                  </Badge>
+                  {platformMeta[p.type] && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingPlatform(p.type)}
+                      className="p-1 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-accent transition-opacity"
+                      title={t('common.edit', 'Edit')}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePlatform(p.type)}
+                    className="p-1 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
+                    title={t('common.delete')}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </span>
               ))}
             </div>
           </Card>
@@ -707,6 +790,14 @@ export default function ProjectDetail() {
         </div>
       )}
 
+      {tab === 'users' && project && name && (
+        <ProjectUsers
+          key={`${name}-${usersSnapshot ? 'loaded' : 'empty'}`}
+          project={name}
+          snapshot={usersSnapshot}
+        />
+      )}
+
       {tab === 'settings' && project && (
         <div className="space-y-4">
         {/* Agent settings */}
@@ -736,19 +827,57 @@ export default function ProjectDetail() {
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                 {t('projects.agentMode', 'Permission mode')}
               </label>
-              <select
-                value={agentMode}
-                onChange={(e) => setAgentMode(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50"
-              >
-                {modeOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-                {agentMode && !modeOptions.some((o) => o.value === agentMode) && (
-                  <option value={agentMode}>{agentMode}</option>
-                )}
-              </select>
+              {modeOptions.length > 0 ? (
+                <select
+                  value={agentMode}
+                  onChange={(e) => setAgentMode(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50"
+                >
+                  {modeOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                  {agentMode && !modeOptions.some((o) => o.value === agentMode) && (
+                    <option value={agentMode}>{agentMode}</option>
+                  )}
+                </select>
+              ) : (
+                <Input
+                  value={agentMode}
+                  onChange={(e) => setAgentMode(e.target.value)}
+                  placeholder={t('projects.agentModePlaceholder', 'Agent-specific mode (optional)')}
+                />
+              )}
             </div>
+            {models.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  {t('providers.model', 'Model')}
+                </label>
+                <select
+                  value={currentModel}
+                  disabled={savingModel}
+                  onChange={async (e) => {
+                    const next = e.target.value;
+                    if (!name) return;
+                    setSavingModel(true);
+                    try {
+                      await setModel(name, next);
+                      setCurrentModel(next);
+                    } catch (err: any) {
+                      alert(err?.message || String(err));
+                    } finally {
+                      setSavingModel(false);
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-60"
+                >
+                  {models.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {currentModel && !models.includes(currentModel) && (
+                    <option value={currentModel}>{currentModel}</option>
+                  )}
+                </select>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -916,6 +1045,65 @@ export default function ProjectDetail() {
             <Button variant="secondary" onClick={() => setAddPlatType('')}>{t('common.back')}</Button>
           </div>
         )}
+      </Modal>
+
+      {/* Edit platform Modal */}
+      <Modal
+        open={!!editingPlatform}
+        onClose={() => setEditingPlatform(null)}
+        title={t('projects.editPlatform', 'Edit platform')}
+      >
+        {editingPlatform && platformMeta[editingPlatform] ? (
+          <>
+            <p className="text-[11px] text-gray-400 mb-2">
+              {t('projects.editPlatformHint', 'Leave a field blank to keep its current value. Saved secrets are not shown.')}
+            </p>
+            <PlatformManualForm
+              platformType={editingPlatform}
+              projectName={name!}
+              mode="edit"
+              onComplete={() => {
+                setEditingPlatform(null);
+                setShowRestartModal(true);
+              }}
+              onCancel={() => setEditingPlatform(null)}
+            />
+          </>
+        ) : (
+          <p className="text-sm text-gray-500 py-4">
+            {t('setup.unsupportedPlatform', 'Unsupported platform type: {{type}}', { type: editingPlatform })}
+          </p>
+        )}
+      </Modal>
+
+      {/* Doctor Modal */}
+      <Modal open={showDoctor} onClose={() => setShowDoctor(false)} title={t('projects.doctor', 'Diagnostics')}>
+        <div className="space-y-3 py-2">
+          {doctorLoading ? (
+            <p className="text-sm text-gray-400 animate-pulse">{t('common.loading')}</p>
+          ) : doctorError ? (
+            <p className="text-sm text-red-500">{doctorError}</p>
+          ) : doctorChecks.length === 0 ? (
+            <p className="text-sm text-gray-400">{t('projects.doctorEmpty', 'No checks returned')}</p>
+          ) : (
+            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+              {doctorChecks.map((c, i) => (
+                <div key={`${c.name}-${i}`} className="flex items-start gap-2 text-sm">
+                  <span className="shrink-0">
+                    {c.status === 'pass' ? '✅' : c.status === 'warn' ? '⚠️' : '❌'}
+                  </span>
+                  <div className="min-w-0">
+                    <span className="font-medium text-gray-900 dark:text-white">{c.name}</span>
+                    {c.detail && <span className="text-gray-500 dark:text-gray-400"> — {c.detail}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-white/[0.06]">
+            <Button variant="secondary" onClick={handleRunDoctor} loading={doctorLoading}>{t('common.refresh')}</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Restart Required Modal */}

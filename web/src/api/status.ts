@@ -6,6 +6,16 @@ export interface SystemStatus {
   connected_platforms: string[];
   projects_count: number;
   bridge_adapters: { platform: string; project: string; capabilities: string[] }[];
+  degraded_platforms?: { name: string; reason: string; since: string }[];
+  bridge?: {
+    enabled: boolean;
+    port?: number;
+    path?: string;
+    token?: string;
+    token_set?: boolean;
+    listening?: boolean;
+    last_error?: string;
+  };
 }
 
 export const getStatus = () => api.get<SystemStatus>('/status');

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { StatCard, Badge, EmptyState } from '@/components/ui';
 import { getStatus, type SystemStatus } from '@/api/status';
+import { getUsage, type UsageResponse } from '@/api/usage';
 import { listProjects, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
 import { formatUptime, formatTime } from '@/lib/utils';
@@ -15,6 +16,7 @@ const MAX_ITEMS = 4;
 export default function Dashboard() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<SystemStatus | null>(null);
+  const [usage, setUsage] = useState<UsageResponse | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [recentSessions, setRecentSessions] = useState<(Session & { project: string })[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,8 +26,9 @@ export default function Dashboard() {
     try {
       setLoading(true);
       setError('');
-      const [s, p] = await Promise.all([getStatus(), listProjects()]);
+      const [s, p, u] = await Promise.all([getStatus(), listProjects(), getUsage()]);
       setStatus(s);
+      setUsage(u);
       const projs = p.projects || [];
       setProjects(projs);
 
@@ -73,6 +76,36 @@ export default function Dashboard() {
         <StatCard label={t('dashboard.platforms')} value={status?.connected_platforms?.length ?? 0} />
         <StatCard label={t('dashboard.projects')} value={status?.projects_count ?? 0} />
       </div>
+
+      {/* Degraded platforms */}
+      {status?.degraded_platforms && status.degraded_platforms.length > 0 && (
+        <section className="rounded-xl border border-amber-300/70 dark:border-amber-700/60 bg-amber-50/80 dark:bg-amber-900/20 px-4 py-3">
+          <h3 className="text-sm font-semibold text-amber-700 dark:text-amber-300 mb-2">
+            {t('dashboard.degradedPlatforms', 'Degraded platforms')}
+          </h3>
+          <ul className="space-y-1">
+            {status.degraded_platforms.map((p, i) => (
+              <li key={`${p.name}-${i}`} className="text-xs text-amber-700 dark:text-amber-300">
+                <span className="font-medium">{p.name}</span>
+                {p.reason ? ` — ${p.reason}` : ''}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Token usage */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5 mb-3">
+          <Activity size={14} className="text-gray-400" />
+          {t('dashboard.tokenUsage', 'Token usage')}
+        </h3>
+        <div className="grid grid-cols-3 gap-3">
+          <StatCard label={t('dashboard.inputTokens', 'Input tokens')} value={(usage?.total.input_tokens ?? 0).toLocaleString()} />
+          <StatCard label={t('dashboard.outputTokens', 'Output tokens')} value={(usage?.total.output_tokens ?? 0).toLocaleString()} />
+          <StatCard label={t('dashboard.turns', 'Turns')} value={(usage?.total.turns ?? 0).toLocaleString()} />
+        </div>
+      </section>
 
       {/* Projects */}
       <section>

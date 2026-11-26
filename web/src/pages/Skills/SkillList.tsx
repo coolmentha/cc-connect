@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Sparkles, Star, ExternalLink, FolderOpen, Puzzle, RefreshCw,
+  Sparkles, Star, ExternalLink, FolderOpen, Puzzle, RefreshCw, Upload, Trash2,
 } from 'lucide-react';
 import { Card, Badge, Button } from '@/components/ui';
 import {
-  listSkills, fetchSkillPresets,
+  listSkills, fetchSkillPresets, installSkill, removeSkill,
   type ProjectSkills, type SkillPreset,
 } from '@/api/skills';
 import { cn } from '@/lib/utils';
@@ -20,6 +20,9 @@ export default function SkillList() {
   const [loading, setLoading] = useState(true);
   const [presetsLoading, setPresetsLoading] = useState(false);
   const [activeProject, setActiveProject] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -48,6 +51,41 @@ export default function SkillList() {
 
   const current = projects.find(p => p.project === activeProject);
   const lang = i18n.language || 'en';
+
+  const handleImportFile = async (file: File | null) => {
+    if (!file) return;
+    if (!activeProject) {
+      setImportError(t('skills.importSelectProject', 'Select a project first'));
+      return;
+    }
+    if (file.size > 256 * 1024) {
+      setImportError(t('skills.importTooLarge', 'SKILL.md must be smaller than 256 KB'));
+      return;
+    }
+    setImporting(true);
+    setImportError('');
+    try {
+      const content = await file.text();
+      const name = file.name.replace(/\.md$/i, '');
+      await installSkill(activeProject, name, content);
+      await refresh();
+    } catch (e: any) {
+      setImportError(e?.message || String(e));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleRemoveSkill = async (name: string) => {
+    if (!activeProject) return;
+    if (!window.confirm(t('skills.deleteConfirm', 'Delete skill {{name}}?', { name }))) return;
+    try {
+      await removeSkill(activeProject, name);
+      await refresh();
+    } catch (e: any) {
+      setImportError(e?.message || String(e));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -94,6 +132,12 @@ export default function SkillList() {
           onSelectProject={setActiveProject}
           loading={loading}
           t={t}
+          importing={importing}
+          importError={importError}
+          fileInputRef={fileInputRef}
+          onImportClick={() => fileInputRef.current?.click()}
+          onImportFile={handleImportFile}
+          onRemove={handleRemoveSkill}
         />
       )}
       {tab === 'recommended' && (
@@ -113,6 +157,7 @@ export default function SkillList() {
 
 function LocalSkills({
   projects, current, activeProject, onSelectProject, loading, t,
+  importing, importError, fileInputRef, onImportClick, onImportFile, onRemove,
 }: {
   projects: ProjectSkills[];
   current?: ProjectSkills;
@@ -120,6 +165,12 @@ function LocalSkills({
   onSelectProject: (name: string) => void;
   loading: boolean;
   t: (k: string, opts?: any) => string;
+  importing: boolean;
+  importError: string;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  onImportClick: () => void;
+  onImportFile: (file: File | null) => void;
+  onRemove: (name: string) => void;
 }) {
   if (loading) {
     return (
@@ -179,7 +230,26 @@ function LocalSkills({
               <span className="text-xs text-gray-400">
                 {t('skills.skillCount', { count: current.skills?.length || 0 })}
               </span>
+              <div className="ml-auto flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".md,text/markdown"
+                  className="hidden"
+                  onChange={(e) => {
+                    onImportFile(e.target.files?.[0] || null);
+                    e.target.value = '';
+                  }}
+                />
+                <Button size="sm" variant="secondary" onClick={onImportClick} loading={importing}>
+                  <Upload size={14} /> {t('skills.import', 'Import skill')}
+                </Button>
+              </div>
             </div>
+
+            {importError && (
+              <p className="mb-3 text-xs text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">{importError}</p>
+            )}
 
             {current.dirs && current.dirs.length > 0 && (
               <div className="mb-4 rounded-xl bg-gray-50 dark:bg-white/[0.03] border border-gray-100 dark:border-white/[0.06] px-3 py-2">
@@ -223,6 +293,14 @@ function LocalSkills({
                           {s.source}
                         </p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(s.name)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
+                        title={t('common.delete')}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </Card>
                 ))}

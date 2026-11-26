@@ -1111,6 +1111,29 @@ Lists connected bridge adapters (external platforms via WebSocket).
 
 ---
 
+### 5.8 Web dashboard extensions
+
+These endpoints back the bundled web UI.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/usage` | Cumulative token usage per project |
+| GET | `/api/v1/logs?limit=200` | Recent in-memory log lines |
+| POST | `/api/v1/timer` | Create a one-shot timer (`project`, `session_key`, `delay`, `prompt`/`exec`) |
+| GET | `/api/v1/timer?project=` | List pending timers |
+| DELETE | `/api/v1/timer/{id}` | Delete a timer |
+| PUT | `/api/v1/projects/{name}/platforms/{type}` | Merge new platform options (blank fields keep their current value) |
+| DELETE | `/api/v1/projects/{name}/platforms/{type}` | Remove a platform |
+| GET/PATCH | `/api/v1/projects/{name}/users` | Read or replace role configuration |
+| GET | `/api/v1/projects/{name}/doctor` | Run agent/platform diagnostics |
+| GET | `/api/v1/projects/{name}/skills` | List project skills |
+| POST | `/api/v1/projects/{name}/skills` | Install a skill from `{name, content}` |
+| DELETE | `/api/v1/projects/{name}/skills/{name}` | Delete an installed skill |
+| GET | `/api/v1/cron/{id}/history` | Recent in-memory run history (last 50 runs) |
+| PATCH | `/api/v1/projects/{name}/sessions/{id}` | Rename a session (`{"name": "..."}`) |
+
+`GET /api/v1/status` also returns `degraded_platforms` and the `bridge` block.
+
 ## 6. Error Handling Conventions
 
 ### 6.1 Standard Error Response

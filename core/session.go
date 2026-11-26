@@ -40,8 +40,12 @@ type Session struct {
 	// — use whatever the agent's default is".
 	ActiveProvider string         `json:"active_provider,omitempty"`
 	History        []HistoryEntry `json:"history"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	// Progress keeps intermediate thinking/tool output for viewers that want
+	// to show the reasoning process (the web dashboard does). It is separate
+	// from History so it never enters the agent's conversation context.
+	Progress  []HistoryEntry `json:"progress,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 	// LastUserActivity records when a real user message was last received.
 	// Unlike UpdatedAt (bumped by every session.Unlock including heartbeats and
 	// unsolicited agent output), this field is only updated when the engine
@@ -186,6 +190,46 @@ func (s *Session) AddHistory(role, content string) {
 		Content:   content,
 		Timestamp: time.Now(),
 	})
+}
+
+// Progress retention bounds keep session files from growing without limit
+// during long agent runs.
+const (
+	maxProgressEntries    = 300
+	maxProgressEntryRunes = 4000
+)
+
+// AddProgress records one intermediate thinking/tool entry for display. It is
+// intentionally separate from History so it never becomes agent context.
+func (s *Session) AddProgress(kind, content string) {
+	if content == "" {
+		return
+	}
+	content = truncateIf(content, maxProgressEntryRunes)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Progress = append(s.Progress, HistoryEntry{
+		Role:      "progress",
+		Kind:      kind,
+		Content:   content,
+		Timestamp: time.Now(),
+	})
+	if len(s.Progress) > maxProgressEntries {
+		s.Progress = append([]HistoryEntry(nil), s.Progress[len(s.Progress)-maxProgressEntries:]...)
+	}
+}
+
+// GetProgress returns up to n most recent progress entries (all when n <= 0).
+func (s *Session) GetProgress(n int) []HistoryEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	total := len(s.Progress)
+	if n <= 0 || n > total {
+		n = total
+	}
+	out := make([]HistoryEntry, n)
+	copy(out, s.Progress[total-n:])
+	return out
 }
 
 // SeedHistoryIfEmpty imports a backend transcript without duplicating history
@@ -870,6 +914,7 @@ func (sm *SessionManager) saveLocked() {
 			HistoryBootstrappedAgentType: s.HistoryBootstrappedAgentType,
 			HistoryBootstrapPending:      s.HistoryBootstrapPending,
 			History:                      append([]HistoryEntry(nil), s.History...),
+			Progress:                     append([]HistoryEntry(nil), s.Progress...),
 			CreatedAt:                    s.CreatedAt,
 			UpdatedAt:                    s.UpdatedAt,
 			LastUserActivity:             s.LastUserActivity,

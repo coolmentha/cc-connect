@@ -412,6 +412,12 @@ type Engine struct {
 	userRoles    *UserRoleManager // nil = legacy mode (no per-user policies)
 	userRolesMu  sync.RWMutex     // protects userRoles, disabledCmds, and adminFrom
 
+	// Cumulative token usage for the management dashboard.
+	usageMu     sync.Mutex
+	usageInput  int64
+	usageOutput int64
+	usageTurns  int64
+
 	rateLimiter         *RateLimiter
 	outgoingRL          *OutgoingRateLimiter
 	dedupMu             sync.RWMutex
@@ -5916,6 +5922,25 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	sendWorkspaceWithError := func(p Platform, replyCtx any, content string) error {
 		return e.sendWithErrorForWorkspace(p, replyCtx, content, workspaceDir)
 	}
+	// sendProgress delivers intermediate progress (thinking/tool events) as a
+	// distinct message when the platform supports it, so clients can render it
+	// separately from the final answer. Falls back to the normal send path.
+	sendProgress := func(p Platform, replyCtx any, content string) {
+		if ps, ok := p.(ProgressMessageSender); ok {
+			if err := ps.SendProgress(e.ctx, replyCtx, content); err == nil {
+				return
+			}
+		}
+		sendWorkspace(p, replyCtx, content)
+	}
+	sendProgressRaw := func(p Platform, replyCtx any, content string) {
+		if ps, ok := p.(ProgressMessageSender); ok {
+			if err := ps.SendProgress(e.ctx, replyCtx, content); err == nil {
+				return
+			}
+		}
+		e.sendRaw(p, replyCtx, content)
+	}
 
 	// Streaming card: aggregate entire turn into a single updatable card.
 	var streamCard StreamingCard
@@ -6223,9 +6248,10 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 				preview := truncateIf(event.Content, e.display.ThinkingMaxLen)
 				thinkingMsg := fmt.Sprintf(e.i18n.T(MsgThinking), preview)
+				session.AddProgress("thinking", thinkingMsg)
 				if !cp.AppendEvent(ProgressEntryThinking, preview, "", thinkingMsg) {
 					if progressStyleForTarget(p, replyCtx) == progressStyleLegacy {
-						sendWorkspace(p, replyCtx, thinkingMsg)
+						sendProgress(p, replyCtx, thinkingMsg)
 					}
 				}
 			}
@@ -6355,6 +6381,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 				}
 				toolMsg := fmt.Sprintf(e.i18n.T(MsgTool), toolCount, event.ToolName, formattedInput)
+				session.AddProgress("tool", toolMsg)
 				// Truncate the tool input that goes into the progress card payload so
 				// tool_max_len applies uniformly to progress_style=card, matching
 				// the rich-card path. event.ToolInput itself is left untouched.
@@ -6365,7 +6392,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					// chat message; the final answer remains authoritative.
 					if progressStyleForTarget(p, replyCtx) == progressStyleLegacy {
 						for _, chunk := range SplitMessageCodeFenceAware(toolMsg, maxPlatformMessageLen) {
-							sendWorkspace(p, replyCtx, chunk)
+							sendProgress(p, replyCtx, chunk)
 						}
 					}
 				}
@@ -6402,6 +6429,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 						break
 					}
 					resultMsg := e.formatToolResultEventFallback(event.ToolName, result, event.ToolStatus, event.ToolExitCode, event.ToolSuccess)
+					session.AddProgress("tool_result", resultMsg)
 					entry := ProgressCardEntry{
 						Kind:     ProgressEntryToolResult,
 						Tool:     event.ToolName,
@@ -6412,7 +6440,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					}
 					if !cp.AppendStructured(entry, resultMsg) {
 						if progressStyleForTarget(p, replyCtx) == progressStyleLegacy && !SuppressStandaloneToolResultEvent(p) {
-							e.sendRaw(p, replyCtx, resultMsg)
+							sendProgressRaw(p, replyCtx, resultMsg)
 						}
 					}
 				}
@@ -6936,6 +6964,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			}
 			fullResponse = cleanResponse
 
+			e.addUsage(event.InputTokens, event.OutputTokens)
 			turnDuration := time.Since(turnStart)
 			slog.Info("turn complete",
 				"session", session.ID,

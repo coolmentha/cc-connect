@@ -1083,6 +1083,29 @@ GET /api/v1/status?token=mgmt-secret
 
 ---
 
+### 5.8 Web 管理台扩展端点
+
+以下端点供内置 Web 管理台使用。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/usage` | 各项目累计 Token 用量 |
+| GET | `/api/v1/logs?limit=200` | 最近的内存日志 |
+| POST | `/api/v1/timer` | 创建一次性定时器（`project`、`session_key`、`delay`、`prompt`/`exec`） |
+| GET | `/api/v1/timer?project=` | 列出待执行的定时器 |
+| DELETE | `/api/v1/timer/{id}` | 删除定时器 |
+| PUT | `/api/v1/projects/{name}/platforms/{type}` | 合并平台配置（留空字段保留原值） |
+| DELETE | `/api/v1/projects/{name}/platforms/{type}` | 移除平台 |
+| GET/PATCH | `/api/v1/projects/{name}/users` | 读取或替换角色配置 |
+| GET | `/api/v1/projects/{name}/doctor` | 运行 Agent/平台诊断 |
+| GET | `/api/v1/projects/{name}/skills` | 列出项目技能 |
+| POST | `/api/v1/projects/{name}/skills` | 通过 `{name, content}` 安装技能 |
+| DELETE | `/api/v1/projects/{name}/skills/{name}` | 删除已安装技能 |
+| GET | `/api/v1/cron/{id}/history` | 最近 50 次运行记录（内存） |
+| PATCH | `/api/v1/projects/{name}/sessions/{id}` | 重命名会话（`{"name": "..."}`） |
+
+`GET /api/v1/status` 还会返回 `degraded_platforms` 与 `bridge` 状态。
+
 ## 6. 错误处理约定
 
 ### 6.1 标准错误响应

@@ -2,10 +2,10 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Clock, Play, Plus, Trash2, Terminal, MessageSquare, Power,
-  ChevronDown,
+  ChevronDown, History,
 } from 'lucide-react';
 import { Button, Badge, Modal, Input, Textarea, EmptyState } from '@/components/ui';
-import { listCronJobs, createCronJob, updateCronJob, deleteCronJob, triggerCronJob, type CronJob } from '@/api/cron';
+import { listCronJobs, createCronJob, updateCronJob, deleteCronJob, triggerCronJob, listCronHistory, type CronJob, type CronRunRecord } from '@/api/cron';
 import { listProjects, type ProjectSummary } from '@/api/projects';
 import { listSessions, type Session } from '@/api/sessions';
 import { formatTime, cn } from '@/lib/utils';
@@ -165,14 +165,18 @@ interface JobForm {
   exec: string;
   description: string;
   silent: boolean;
+  mute: boolean;
   enabled: boolean;
   mode: string;
+  timeout_mins: string;
+  work_dir: string;
   _type: 'prompt' | 'exec';
 }
 
 const emptyForm: JobForm = {
   project: '', session_key: '', cron_expr: '', prompt: '', exec: '',
-  description: '', silent: false, enabled: true, mode: '', _type: 'prompt',
+  description: '', silent: false, mute: false, enabled: true, mode: '',
+  timeout_mins: '', work_dir: '', _type: 'prompt',
 };
 
 /* ── Main page ── */
@@ -188,6 +192,9 @@ export default function CronList() {
   const [saving, setSaving] = useState(false);
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
   const [sessionKeys, setSessionKeys] = useState<string[]>([]);
+  const [historyJob, setHistoryJob] = useState<CronJob | null>(null);
+  const [historyRecords, setHistoryRecords] = useState<CronRunRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const isEdit = !!editJob;
 
@@ -244,8 +251,11 @@ export default function CronList() {
       exec: job.exec,
       description: job.description,
       silent: !!job.silent,
+      mute: !!job.mute,
       enabled: job.enabled,
       mode: job.mode || '',
+      timeout_mins: job.timeout_mins ? String(job.timeout_mins) : '',
+      work_dir: job.work_dir || '',
       _type: job.exec ? 'exec' : 'prompt',
     });
     setShowForm(true);
@@ -265,13 +275,23 @@ export default function CronList() {
         if (form.project !== editJob.project) updates.project = form.project;
         if (form.session_key !== editJob.session_key) updates.session_key = form.session_key;
         if (form.silent !== !!editJob.silent) updates.silent = form.silent;
+        if (form.mute !== !!editJob.mute) updates.mute = form.mute;
         if (form.enabled !== editJob.enabled) updates.enabled = form.enabled;
         if ((form.mode || '') !== (editJob.mode || '')) updates.mode = form.mode;
+        const timeout = parseInt(form.timeout_mins, 10) || 0;
+        if (timeout !== (editJob.timeout_mins || 0)) updates.timeout_mins = timeout || null;
+        if (form.work_dir !== (editJob.work_dir || '')) updates.work_dir = form.work_dir;
         if (Object.keys(updates).length > 0) {
           await updateCronJob(editJob.id, updates);
         }
       } else {
-        const body: any = { ...form, prompt: activePrompt, exec: activeExec };
+        const body: any = {
+          ...form,
+          prompt: activePrompt,
+          exec: activeExec,
+          timeout_mins: parseInt(form.timeout_mins, 10) || 0,
+          work_dir: form.work_dir,
+        };
         delete body._type;
         if (!body.prompt) delete body.prompt;
         if (!body.exec) delete body.exec;
@@ -290,6 +310,20 @@ export default function CronList() {
     if (!confirm(t('common.confirmDelete'))) return;
     await deleteCronJob(id);
     fetchData();
+  };
+
+  const openHistory = async (job: CronJob) => {
+    setHistoryJob(job);
+    setHistoryLoading(true);
+    try {
+      const res = await listCronHistory(job.id);
+      setHistoryRecords(res.history || []);
+    } catch (e: any) {
+      alert(e?.message || String(e));
+      setHistoryRecords([]);
+    } finally {
+      setHistoryLoading(false);
+    }
   };
 
   const handleToggleEnabled = async (job: CronJob) => {
@@ -398,6 +432,13 @@ export default function CronList() {
                 className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
                 onClick={e => e.stopPropagation()}
               >
+                <button
+                  onClick={() => openHistory(job)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.06] transition-colors"
+                  title={t('cron.history', 'Run history')}
+                >
+                  <History size={14} />
+                </button>
                 <button
                   onClick={() => handleTrigger(job)}
                   disabled={triggeringId === job.id}
@@ -530,9 +571,24 @@ export default function CronList() {
             placeholder={t('cron.modeDefault')}
           />
 
+          <Input
+            label={t('cron.workDir', 'Working directory')}
+            value={form.work_dir}
+            onChange={e => setForm({ ...form, work_dir: e.target.value })}
+            placeholder="/path/to/project"
+          />
+          <Input
+            label={t('cron.timeoutMins', 'Timeout (minutes)')}
+            type="number"
+            value={form.timeout_mins}
+            onChange={e => setForm({ ...form, timeout_mins: e.target.value })}
+            placeholder="30"
+          />
+
           <div className="flex items-center gap-6 pt-1">
             <Toggle checked={form.enabled} onChange={v => setForm({ ...form, enabled: v })} label={t('cron.enabled')} />
             <Toggle checked={form.silent} onChange={v => setForm({ ...form, silent: v })} label={t('cron.silent')} />
+            <Toggle checked={form.mute} onChange={v => setForm({ ...form, mute: v })} label={t('cron.mute', 'Mute')} />
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-white/[0.06]">
@@ -540,6 +596,32 @@ export default function CronList() {
             <Button onClick={handleSave} loading={saving}>
               {isEdit ? t('common.save') : t('cron.add')}
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Run history */}
+      <Modal open={!!historyJob} onClose={() => setHistoryJob(null)} title={t('cron.history', 'Run history')}>
+        <div className="space-y-2 py-2">
+          {historyLoading ? (
+            <p className="text-sm text-gray-400 animate-pulse">{t('common.loading')}</p>
+          ) : historyRecords.length === 0 ? (
+            <p className="text-sm text-gray-400">{t('cron.noHistory', 'No runs recorded yet')}</p>
+          ) : (
+            <div className="space-y-1.5 max-h-[55vh] overflow-y-auto">
+              {[...historyRecords].reverse().map((r, i) => (
+                <div key={`${r.run_at}-${i}`} className="flex items-start gap-2 text-sm">
+                  <span className="shrink-0">{r.success ? '✅' : '❌'}</span>
+                  <div className="min-w-0">
+                    <span className="text-gray-700 dark:text-gray-300">{formatTime(r.run_at)}</span>
+                    {r.error && <span className="text-red-500"> — {r.error}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-white/[0.06]">
+            <Button variant="secondary" onClick={() => historyJob && openHistory(historyJob)}>{t('common.refresh')}</Button>
           </div>
         </div>
       </Modal>

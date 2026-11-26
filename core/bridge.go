@@ -2,8 +2,10 @@ package core
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -37,6 +39,9 @@ type BridgeServer struct {
 
 	mu       sync.RWMutex
 	adapters map[string]*bridgeAdapter // platform name → adapter
+
+	ticketsMu sync.Mutex
+	tickets   map[string]time.Time // short-lived WebSocket credentials
 
 	enginesMu sync.RWMutex
 	engines   map[string]*bridgeEngineRef // project name → engine ref
@@ -194,6 +199,7 @@ func newBridgeServer(port int, token, path string, corsOrigins []string, insecur
 		corsOrigins: corsOrigins,
 		insecure:    insecure,
 		adapters:    make(map[string]*bridgeAdapter),
+		tickets:     make(map[string]time.Time),
 		engines:     make(map[string]*bridgeEngineRef),
 	}
 }
@@ -547,6 +553,27 @@ func (bp *BridgePlatform) SendWithButtons(ctx context.Context, replyCtx any, con
 		"reply_ctx":   rc.ReplyCtx,
 		"content":     content,
 		"buttons":     buttons,
+	})
+}
+
+// SendProgress delivers an intermediate thinking/tool progress message. It is
+// only used when the adapter advertises the "progress" capability; otherwise
+// the engine falls back to a regular reply so older adapters keep working.
+func (bp *BridgePlatform) SendProgress(ctx context.Context, replyCtx any, content string) error {
+	rc, ok := replyCtx.(*bridgeReplyCtx)
+	if !ok {
+		return fmt.Errorf("bridge: invalid reply context")
+	}
+	a := bp.server.getAdapter(rc.Platform)
+	if a == nil || !a.capabilities["progress"] {
+		return ErrNotSupported
+	}
+	return bp.server.sendToAdapter(rc.Platform, map[string]any{
+		"type":        "progress",
+		"session_key": rc.SessionKey,
+		"reply_ctx":   rc.ReplyCtx,
+		"content":     content,
+		"format":      "markdown",
 	})
 }
 
@@ -1334,9 +1361,57 @@ func (bs *BridgeServer) authenticate(r *http.Request) bool {
 		return subtle.ConstantTimeCompare([]byte(tok), []byte(bs.token)) == 1
 	}
 	if tok := r.URL.Query().Get("token"); tok != "" {
-		return subtle.ConstantTimeCompare([]byte(tok), []byte(bs.token)) == 1
+		if subtle.ConstantTimeCompare([]byte(tok), []byte(bs.token)) == 1 {
+			return true
+		}
+		return bs.validTicket(tok)
 	}
 	return false
+}
+
+// IssueTicket creates a short-lived credential for WebSocket clients so the
+// long-lived bridge token does not have to be placed in a URL (where it can be
+// captured by access logs).
+func (bs *BridgeServer) IssueTicket(ttl time.Duration) string {
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return ""
+	}
+	ticket := hex.EncodeToString(buf)
+	now := time.Now()
+	bs.ticketsMu.Lock()
+	if bs.tickets == nil {
+		bs.tickets = make(map[string]time.Time)
+	}
+	for k, exp := range bs.tickets {
+		if now.After(exp) {
+			delete(bs.tickets, k)
+		}
+	}
+	bs.tickets[ticket] = now.Add(ttl)
+	bs.ticketsMu.Unlock()
+	return ticket
+}
+
+func (bs *BridgeServer) validTicket(ticket string) bool {
+	if ticket == "" {
+		return false
+	}
+	now := time.Now()
+	bs.ticketsMu.Lock()
+	defer bs.ticketsMu.Unlock()
+	exp, ok := bs.tickets[ticket]
+	if !ok {
+		return false
+	}
+	if now.After(exp) {
+		delete(bs.tickets, ticket)
+		return false
+	}
+	return true
 }
 
 func (bs *BridgeServer) getAdapter(platform string) *bridgeAdapter {

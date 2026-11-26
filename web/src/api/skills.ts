@@ -52,3 +52,9 @@ export const listSkills = () =>
 
 export const fetchSkillPresets = () =>
   api.get<SkillPresetsResponse>('/skills/presets');
+
+export const installSkill = (project: string, name: string, content: string) =>
+  api.post<{ name: string; path: string }>(`/projects/${project}/skills`, { name, content });
+
+export const removeSkill = (project: string, name: string) =>
+  api.delete(`/projects/${project}/skills/${encodeURIComponent(name)}`);
